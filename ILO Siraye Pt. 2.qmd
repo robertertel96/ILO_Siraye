@@ -1,0 +1,1015 @@
+---
+title: "ILO Siraye"
+subtitle: "Data Analysis Plan Part 2"
+author: "Robert Ertel"
+format: docx
+editor: visual
+execute: 
+  echo: false
+---
+
+```{r echo = FALSE , message=FALSE}
+setwd("~/Desktop/ILO Siraye")
+
+# Set CRAN mirror
+#options(repos = c(CRAN = "https://cran.r-project.org"))
+#install.packages("haven")
+#install.packages("dplyr")
+#install.packages("ggplot2")
+#install.packages("knitr")
+library(knitr)
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(ggstatsplot)
+```
+
+```{r echo = FALSE}
+data <- read_dta("ONE ILO pooled worker and firm data (no Saba).dta")
+data <- haven::as_factor(data, levels="labels")
+baseline <- data %>%
+  filter(baselinedata == 1)
+endline <- data %>%
+  filter(endlinedata == 1)
+treatment_19 <- data %>%
+  filter(treatment_19 == "Treatment 2019")
+treatment_23 <- data %>%
+  filter(treatment_23 == "Treatment")
+control_23 <- data %>%
+  filter(treatment_23 == "Control")
+control_19 <- data %>%
+  filter(treatment_19 == "Control 2019")
+
+```
+
+## Descriptive table
+
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Variable                                  |           | 2019    |        |           | 2023    |        |
++===========================================+===========+=========+========+===========+=========+========+
+|                                           | Treatment | Control | both   | Treatment | Control | both   |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Number of Observations                    | 189       | 594     | 783    | 703       | 342     | 1046   |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Number and share of women                 | 130       | 422     | 552    | 624       | 235     | 860    |
+|                                           |           |         |        |           |         |        |
+|                                           | 68.78%    | 71.04%  | 70.49% | 88.76%    | 68.71%  | 82.21% |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Number and share of men                   | 59        | 172     | 231    | 79        | 107     | 186    |
+|                                           |           |         |        |           |         |        |
+|                                           | 31.22%    | 28.96%  | 29.51% | 11.23%    | 31.28%  | 17.79% |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Mean age                                  | 23.86     | 24.46   | 24.32  | 24.33     | 28.04   | 25.54  |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Share migrated                            | 62%       | 62.99%  | 62.75% | 62.30%    | 38.88%  | 54.64% |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Share married                             | 22.16%    | 25.73%  | 24.86% | 24.60%    | 42.69%  | 30.52% |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Mean Household Size                       | 4.75      | 3.75    | 3.99   | 2.95      | 2.91    | 2.93   |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Mean number of children                   | 0.64      | 0.64    | 0.64   | 0.27      | 0.57    | 0.37   |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Ability to read and write in any language | 82%       | 82.82%  | 82.63% | 92.03%    | 95.02%  | 93.01% |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+| Total number of years in education        |           |         |        |           |         |        |
++-------------------------------------------+-----------+---------+--------+-----------+---------+--------+
+
+: Tab 1. Descriptive summary table
+
+## Graphics
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for formal training in endline and baseline survey according group differences in percentage"}
+
+# Data for b20_19 and training_for_23
+baseline_full_sample <- na.omit(data$b20_19)
+baseline_treatment <-data %>%
+  filter(treatment_19 == "Treatment 2019") %>%
+  select(b20_19)
+baseline_control <- data %>%
+  filter(treatment_19 == "Control 2019") %>%
+  select(b20_19)
+
+endline_full_sample <- na.omit(data$training_for_23)
+endline_treatment <- data %>%
+  filter(treatment_23 == "Treatment") %>%
+  select(training_for_23)
+endline_control <- data %>%
+  filter(treatment_23 == "Control") %>%
+  select(training_for_23)
+
+# Proportions 
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine all proportions into a single data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("Yes", "No"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette with more subdued academic colors
+custom_palette <- c("#1f77b4", "#ff7f0e") # blue and orange
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%.2f", Proportion), y = Proportion), 
+            position = position_dodge(width = 1), vjust = -0.5, size = 2.5, color = "black") + 
+  scale_y_continuous(name = "Proportion", sec.axis = sec_axis(~./sum(table(proportions_df$Factor)), 
+                                                               name = "Count")) +
+  labs(title = "Comparison of Formal Training Reception",
+       x = "",
+       fill = "Item Response") +
+  scale_fill_manual(values = custom_palette, name = "Item Response",
+                    labels = c("Yes" = "Yes", "No" = "No")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y.left = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y.right = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Stacked Barplot for formal training in endline and baseline survey according group differences in percentage"}
+
+# Define custom color palette with more subdued academic colors
+custom_palette <- c("#1f77b4", "#ff7f0e") # blue and orange
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Comparison of Formal Training Reception",
+       subtitle = "Proportions of Yes and No Responses",
+       x = "",
+       y = "Proportion",
+       fill = "Item Response") +
+  scale_fill_manual(values = custom_palette, name = "Response Item",
+                    labels = c("Yes" = "Yes", "No" = "No")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        plot.subtitle = element_text(face = "italic", size = 8, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for strike occurence in endline and baseline survey according group differences in percentage"}
+
+# Data for cb29_19 and strike_5yrs_23
+baseline_full_sample <- na.omit(data$cb29_19)
+baseline_treatment <-data %>%
+  filter(treatment_19 == "Treatment 2019") %>%
+  select(cb29_19)
+baseline_control <- data %>%
+  filter(treatment_19 == "Control 2019") %>%
+  select(cb29_19)
+
+endline_full_sample <- na.omit(data$strike_5yrs_23)
+endline_treatment <- data %>%
+  filter(treatment_23 == "Treatment") %>%
+  select(strike_5yrs_23)
+endline_control <- data %>%
+  filter(treatment_23 == "Control") %>%
+  select(strike_5yrs_23)
+
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+baseline_full_sample_prop <- rep(baseline_full_sample_prop, 2)
+baseline_treatment_prop <- rep(baseline_treatment_prop, 2)
+baseline_control_prop <- rep(baseline_control_prop, 2)
+
+
+# Combine all proportions into a single data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("Yes", "No"), times = 6), 
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e") # blue and orange
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Strike occurrence in the last 5 years",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "Item response ",
+                    labels = c("Yes" = "Yes", "No" = "No")) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for workers voice in management in endline and baseline survey according group differences"}
+
+baseline_full_sample <- data %>%
+  filter(!is.na(cb28_19))
+baseline_treatment <- data %>%
+  filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>%
+  filter(treatment_19 == "Control 2019")
+endline_full_sample <- data %>% 
+  filter(!is.na(interests_23) & interests_23 != "I don’t want to answer")
+endline_treatment <- data %>%
+  filter(treatment_23 == "Treatment" & interests_23 != "I don’t want to answer")
+endline_control <- data %>%
+  filter(treatment_23 == "Control" & interests_23 != "I don’t want to answer")
+
+# Define response categories
+response_categories <- c("Always", "Sometimes", "Rarely", "Never")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  freq_table <- table(factor(subset, levels = response_categories))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$cb28_19,
+  baseline_treatment$cb28_19,
+  baseline_control$cb28_19,
+  endline_full_sample$interests_23,
+  endline_treatment$interests_23,
+  endline_control$interests_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(response_categories)),
+  Response = rep(response_categories, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#2ca02c", "#ff7f0e", "#1f77b4", "#ffbb78")
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparison of workers voice in management decisions",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "Response Item",
+                    labels = c("Always", "Sometimes", "Rarely", "Never")) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for overtime hours in endline and baseline survey according group differences"}
+
+#data$ot9_19 <- cut(
+#    data$ot9_19,
+#    breaks = c(-Inf, 0, 5, 10, 15, 20, Inf),
+#    labels = c("0", "1-5", "6-10", "11-15", "16-20", "> 20"),
+#    right = FALSE
+#  )
+
+
+baseline_full_sample <- data %>%
+  filter(!is.na(ot9_19))
+
+baseline_treatment <- data %>%
+  filter(treatment_19 == "Treatment 2019")
+
+baseline_control <- data %>%
+  filter(treatment_19 == "Control 2019")
+
+# Filter out rows where ot_hours_23 is equal to "0"
+endline_full_sample <- endline[endline$ot_hours_23 != "0", ]
+endline_treatment <- endline[endline$treatment_23 == "Treatment" & endline$ot_hours_23 != "0", ]
+endline_control <- endline[endline$treatment_23 == "Control" & endline$ot_hours_23 != "0", ]
+
+
+
+# Define response categories
+response_categories <- c("1-5", "6-10", "11-15", "16-20", "> 20")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  freq_table <- table(factor(subset, levels = response_categories))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$ot9_19,
+  baseline_treatment$ot9_19,
+  baseline_control$ot9_19,
+  endline_full_sample$ot_hours_23,
+  endline_treatment$ot_hours_23,
+  endline_control$ot_hours_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(response_categories)),
+  Response = rep(response_categories, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Plot
+library(RColorBrewer)
+custom_palette <- brewer.pal(5, "YlGnBu")
+# Define the order and labels for the legend
+legend_labels <- c("1-5", "6-10", "11-15", "16-20", "> 20")
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot with reordered levels
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response, label = sprintf("%.2f", Proportion))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Overtime hours",
+       x = "",
+       y = "Proportion") +
+  scale_fill_manual(values = custom_palette, name = "Overtime Hours",
+                    labels = legend_labels) +  # Corrected legend labels
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+
+
+
+```
+
+```{r}
+# Define custom color palette
+custom_palette <- brewer.pal(6, "YlGnBu")
+
+# Define the order and labels for the legend
+legend_labels <- c("1-5", "6-10", "11-15", "16-20", "> 20")
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Calculate percentages
+proportions_df$Percentage <- proportions_df$Proportion * 100
+
+# Plot with reordered levels and percentages
+ggplot(proportions_df, aes(x = Factor, y = Percentage, fill = Response, label = sprintf("%.2f%%", Percentage))) +
+  
+  # Add bar plot
+  geom_bar(stat = "identity", position = "dodge", color = "black", size = 0.3) +
+  
+  # Define plot labels and title
+  labs(title = "Distribution of Overtime Hours",
+       x = "",
+       y = "Percentage of Respondents") +
+  
+  # Define legend aesthetics
+  scale_fill_manual(values = custom_palette, name = "Overtime Hours",
+                    labels = legend_labels) +   
+  
+  # Adjust theme for better readability
+  theme_minimal(base_size = 10) +  # Adjusted base font size
+  theme(axis.text.x = element_text(angle= 45,hjust = 1, size = 8, color = "black", family = "Arial"),  # Adjusted size
+        axis.text.y = element_text(size = 8, color = "black", family = "Arial"),  # Adjusted size
+        axis.title.x = element_text(face = "bold", size = 10, color = "black", family = "Arial"),  # Adjusted size
+        axis.title.y = element_text(face = "bold", size = 10, color = "black", family = "Arial"),  # Adjusted size
+        legend.title = element_text(face = "bold", size = 8, color = "black", family = "Arial"),  # Adjusted size
+        legend.text = element_text(size = 8, color = "black", family = "Arial"),  # Adjusted size
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black", family = "Arial"),  # Adjusted size
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right",
+        plot.caption = element_text(hjust = 0, margin = margin(t = 5)))  # Adjusted margin
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Stacked Barplot for overtime hours in endline and baseline survey according group differences"}
+# Plot
+library(RColorBrewer)
+custom_palette <- brewer.pal(6, "YlGnBu")
+# Define the order and labels for the legend
+legend_labels <- c("0", "1-5", "6-10", "11-15", "16-20", "> 20")
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot with reordered levels
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response, label = sprintf("%.2f", Proportion))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Overtime hours",
+       x = "",
+       y = "Proportion") +
+  scale_fill_manual(values = custom_palette, name = "Overtime Hours",
+                    labels = legend_labels) +  # Corrected legend labels
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for union existance in endline and baseline survey according group differences"}
+legend_labels <- c("No", "Yes")
+custom_palette <- c("lightblue", "lightgreen")
+
+# Assuming data is defined somewhere before this point
+# If not, please define it with your actual data
+
+data$union_19 <- ifelse(data$union_19 == 1, "Yes", 
+                        ifelse(data$union_19 == 0, "No", data$union_19))
+
+# Define subsets
+baseline_full_sample <- data %>% filter(!is.na(union_19))
+baseline_treatment <- data %>% filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>% filter(treatment_19 == "Control 2019")
+endline_full_sample <- data %>% filter(!is.na(union_23) & union_23 != "I don’t know")
+endline_treatment <- data %>% filter(treatment_23 == "Treatment" & union_23 != "I don’t know")
+endline_control <- data %>% filter(treatment_23 == "Control" & union_23 != "I don’t know")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  freq_table <- table(factor(subset, levels = legend_labels))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$union_19,
+  baseline_treatment$union_19,
+  baseline_control$union_19,
+  endline_full_sample$union_23,
+  endline_treatment$union_23,
+  endline_control$union_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(legend_labels)),
+  Response = rep(legend_labels, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response, label = sprintf("%.2f", Proportion))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Existance of a Union",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "Item response",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Stacked Barplot for union existance in endline and baseline survey according group differences"}
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response, label = sprintf("%.2f", Proportion))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Existance of a Union",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "Item response",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for union membership in endline and baseline survey according group differences"}
+
+# Example legend labels
+legend_labels <- c("Yes", "No, but I have been a union member in the past", "No, I have never been a union member")
+
+# Example custom color palette
+custom_palette <- c("#E41A1C", "#377EB8", "#4DAF4A")
+
+baseline_full_sample <- data %>% filter(!is.na(cb1_19))
+baseline_treatment <- data %>% filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>% filter(treatment_19 == "Control 2019")
+
+endline_full_sample <- data %>% filter(!is.na(tu_member1_23) & tu_member1_23 != "I don’t know" & tu_member1_23 != "I don't want to say")
+endline_treatment <- data %>% filter(treatment_23 == "Treatment" & tu_member1_23 != "I don’t know" & tu_member1_23 != "I don't want to say")
+endline_control <- data %>% filter(treatment_23 == "Control" & tu_member1_23 != "I don’t know" & tu_member1_23 != "I don't want to say")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  subset_no_na <- subset[!is.na(subset)]
+  freq_table <- table(factor(subset_no_na, levels = legend_labels))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$cb1_19,
+  baseline_treatment$cb1_19,
+  baseline_control$cb1_19,
+  endline_full_sample$tu_member1_23,
+  endline_treatment$tu_member1_23,
+  endline_control$tu_member1_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(legend_labels)),
+  Response = rep(legend_labels, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response, label = sprintf("%.2f", Proportion))) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(title = "Union Membership",
+       x = "",
+       y = "Proportion") +
+  scale_fill_manual(values = custom_palette, name = "Item response",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Health facilities onsite in endline and baseline survey according group differences"}
+
+legend_labels <- c("Yes", "No")
+custom_palette <- c("#4DAF4A", "#E41A1C")
+
+baseline_full_sample <- data %>% filter(!is.na(osh13_19))
+baseline_treatment <- data %>% filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>% filter(treatment_19 == "Control 2019")
+
+endline_full_sample <- data %>% filter(!is.na(hs_onsite_23) & hs_onsite_23 != "I don’t know")
+endline_treatment <- data %>% filter(treatment_23 == "Treatment" & hs_onsite_23 != "I don’t know")
+endline_control <- data %>% filter(treatment_23 == "Control" & hs_onsite_23 != "I don’t know")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  subset_no_na <- subset[!is.na(subset)]
+  freq_table <- table(factor(subset_no_na, levels = legend_labels))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$osh13_19,
+  baseline_treatment$osh13_19,
+  baseline_control$osh13_19,
+  endline_full_sample$hs_onsite_23,
+  endline_treatment$hs_onsite_23,
+  endline_control$hs_onsite_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(legend_labels)),
+  Response = rep(legend_labels, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%.2f", Proportion)), 
+            position = position_dodge(width = 0.9),    # Adjust the position for dodge
+            vjust = -0.5,                               # Adjust vertical position
+            size = 3,                                   # Adjust text size
+            color = "black",                            # Text color
+            show.legend = FALSE) +                      # Hide legend for this layer
+  labs(title = "Health facilities onsite",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for adequate toilet facilities in endline and baseline survey according group differences"}
+
+legend_labels <- c("Yes", "No")
+custom_palette <- c("#4DAF4A", "#E41A1C")
+
+baseline_full_sample <- data %>% filter(!is.na(osh10_19))
+baseline_treatment <- data %>% filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>% filter(treatment_19 == "Control 2019")
+
+endline_full_sample <- data %>% filter(!is.na(toilets_23) & toilets_23 != "I don’t know")
+endline_treatment <- data %>% filter(treatment_23 == "Treatment" & toilets_23 != "I don’t know")
+endline_control <- data %>% filter(treatment_23 == "Control" & toilets_23 != "I don’t know")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  subset_no_na <- subset[!is.na(subset)]
+  freq_table <- table(factor(subset_no_na, levels = legend_labels))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$osh10_19,
+  baseline_treatment$osh10_19,
+  baseline_control$osh10_19,
+  endline_full_sample$toilets_23,
+  endline_treatment$toilets_23,
+  endline_control$toilets_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(legend_labels)),
+  Response = rep(legend_labels, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%.2f", Proportion)), 
+            position = position_dodge(width = 0.9),    # Adjust the position for dodge
+            vjust = -0.5,                               # Adjust vertical position
+            size = 3,                                   # Adjust text size
+            color = "black",                            # Text color
+            show.legend = FALSE) +                      # Hide legend for this layer
+  labs(title = "Adequate toilet facilities",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Concern about sexual harassment in endline and baseline survey according group differences"}
+
+legend_labels <- c("Yes", "No", "I don't want to answer")
+custom_palette <- c("#E41A1C","#4DAF4A", "#377EB8")
+
+baseline_full_sample <- data %>% filter(!is.na(d7_3_19))
+baseline_treatment <- data %>% filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>% filter(treatment_19 == "Control 2019")
+
+endline_full_sample <- data %>% filter(!is.na(harass_concern1_23) & harass_concern1_23 != "I don’t know")
+endline_treatment <- data %>% filter(treatment_23 == "Treatment" & harass_concern1_23 != "I don’t know")
+endline_control <- data %>% filter(treatment_23 == "Control" & harass_concern1_23 != "I don’t know")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  subset_no_na <- subset[!is.na(subset)]
+  freq_table <- table(factor(subset_no_na, levels = legend_labels))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$d7_3_19,
+  baseline_treatment$d7_3_19,
+  baseline_control$d7_3_19,
+  endline_full_sample$harass_concern1_23,
+  endline_treatment$harass_concern1_23,
+  endline_control$harass_concern1_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(legend_labels)),
+  Response = rep(legend_labels, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%.2f", Proportion)), 
+            position = position_dodge(width = 0.9),    # Adjust the position for dodge
+            vjust = -0.5,                               # Adjust vertical position
+            size = 3,                                   # Adjust text size
+            color = "black",                            # Text color
+            show.legend = FALSE) +                      # Hide legend for this layer
+  labs(title = "Concern about sexual harassment",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Concern about verbal abuse in endline and baseline survey according group differences"}
+
+legend_labels <- c("Yes", "No", "I don't want to answer")
+custom_palette <- c("#E41A1C","#4DAF4A", "#377EB8")
+
+baseline_full_sample <- data %>% filter(!is.na(d0_19))
+baseline_treatment <- data %>% filter(treatment_19 == "Treatment 2019")
+baseline_control <- data %>% filter(treatment_19 == "Control 2019")
+
+endline_full_sample <- data %>% filter(!is.na(abuse_verbal1_23) & abuse_verbal1_23 != "I don’t know")
+endline_treatment <- data %>% filter(treatment_23 == "Treatment" & abuse_verbal1_23 != "I don’t know")
+endline_control <- data %>% filter(treatment_23 == "Control" & abuse_verbal1_23 != "I don’t know")
+
+# Function to calculate proportions
+calculate_proportions <- function(subset) {
+  subset_no_na <- subset[!is.na(subset)]
+  freq_table <- table(factor(subset_no_na, levels = legend_labels))
+  prop.table(freq_table)
+}
+
+# Calculate proportions for each subset
+proportions_list <- lapply(list(
+  baseline_full_sample$d0_19,
+  baseline_treatment$d0_19,
+  baseline_control$d0_19,
+  endline_full_sample$abuse_verbal1_23,
+  endline_treatment$abuse_verbal1_23,
+  endline_control$abuse_verbal1_23
+), calculate_proportions)
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = rep(c("Baseline Full Sample", "Baseline Treatment", "Baseline Control", "Endline Full Sample", "Endline Treatment", "Endline Control"), each = length(legend_labels)),
+  Response = rep(legend_labels, times = length(proportions_list)),
+  Proportion = unlist(proportions_list)
+)
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Reorder the levels of the 'Response' factor
+proportions_df$Response <- factor(proportions_df$Response, levels = legend_labels)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = sprintf("%.2f", Proportion)), 
+            position = position_dodge(width = 0.9),    # Adjust the position for dodge
+            vjust = -0.5,                               # Adjust vertical position
+            size = 3,                                   # Adjust text size
+            color = "black",                            # Text color
+            show.legend = FALSE) +                      # Hide legend for this layer
+  labs(title = "Concern about verbal abuse",
+       x = "",
+       y = "") +
+  scale_fill_manual(values = custom_palette, name = "",
+                    labels = legend_labels) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(face = "bold", size = 12),
+        axis.title.y = element_text(face = "bold", size = 12),
+        legend.title = element_text(face = "bold", size = 10),
+        legend.text = element_text(size = 10),
+        plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        panel.border = element_blank(),
+        legend.background = element_rect(fill = "white"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```

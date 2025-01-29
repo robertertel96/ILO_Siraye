@@ -1,0 +1,834 @@
+---
+title: "Data Analysis Plan 3"
+author: "Robert Ertel"
+format: docx
+editor: visual
+---
+
+## To work with the firm level data you will first need to code a ‘Treatment’ variable.
+
+Start with the endline data and code a variable ‘treatment’ using the information in ‘selected’. There are not many firms so this can easily be done by hand.
+
+Next, using the firm id (s1) and/or firm name also code a variable ‘treatment’ for the baseline data. Again, the number of firms is quite small. Any firm [not]{.underline} listed in the treatment group at endline should also be coded as control in the baseline dataset. This includes all the firms not present in the endline dataset.
+
+```{r echo = FALSE , message=FALSE}
+setwd("~/Desktop/ILO Siraye")
+
+# Set CRAN mirror
+#options(repos = c(CRAN = "https://cran.r-project.org"))
+#install.packages("haven")
+#install.packages("dplyr")
+#install.packages("ggplot2")
+#install.packages("knitr")
+library(knitr)
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(ggstatsplot)
+```
+
+You can add options to executable code like this
+
+```{r echo = FALSE}
+baseline <- read_dta("ONE ILO firm baseline clean.dta")
+baseline <- haven::as_factor(baseline, levels="labels")
+endline <- read_dta("ONE ILO_firm_data_Dec2023.dta")
+endline <- haven::as_factor(endline, levels="labels")
+
+```
+
+```{r echo = FALSE}
+endline$treatment <- c(endline$selected)
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment")
+ID_endline <- c(endline_treatment$s1)
+endline <- endline %>% mutate(treatment = if_else(treatment != "Treatment", "Control", treatment))
+endline_control <- endline %>%
+  filter(treatment == "Control")
+
+match_vector <- baseline$s1 %in% ID_endline
+baseline$treatment <- ifelse(match_vector, "Treatment", "Control")
+baseline$treatment <- factor(baseline$treatment, levels = c("Treatment", "Control"))
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment")
+baseline_control <- baseline %>%
+  filter(treatment == "Control")
+
+
+
+
+```
+
+## 1.1 Sample characteristics
+
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Variable                                                         |            | 2019    |         |           | 2023    |         |
++==================================================================+============+=========+=========+===========+=========+=========+
+|                                                                  | Treatment  | Control | both    | Treatment | Control | both    |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Number of total firms                                            | 13         | 55      | 70      | 25        | 13      | 38      |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Number and share of firms that export                            | 12         | 30      | 42      | 21        | 2       | 23      |
+|                                                                  |            |         |         |           |         |         |
+|                                                                  | 92%        | 54%     | 60%     | 84%       | 15%     | 60%     |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Average export share (in %)                                      | NA         | NA      | NA      | 71        | 15.38   | 51.97   |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Number and share of firms in industrial parks                    | 11         | 14      | 25      | 19        | 4       | 23      |
+|                                                                  |            |         |         |           |         |         |
+|                                                                  | 84%        | 25%     | 35%     | 76%       | 30%     | 60%     |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Number and share of foreign firms                                | 11         | 30      | 41      | 18        | 3       | 21      |
+|                                                                  |            |         |         |           |         |         |
+|                                                                  | 84%        | 54%     | 58%     | 72%       | 23%     | 55%     |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+| Number and share of firms with production bases outside Ethiopia | 9          | 16      | 25      | 14        | 2       | 16      |
+|                                                                  |            |         |         |           |         |         |
+|                                                                  | 69%        | 29%     | 35%     | 77%       | 15%     | 42%     |
++------------------------------------------------------------------+------------+---------+---------+-----------+---------+---------+
+
+: Tab 1. Descriptive summary table
+
+## Graphics
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Boxplots for Total payroll employees in endline and baseline survey according group differences"}
+# Prepare data
+baseline_full_sample <- baseline$l_2_n[!is.na(baseline$l_2_n)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(l_2_n)) %>%
+  select(l_2_n)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(l_2_n)) %>%
+  select(l_2_n)
+
+endline_full_sample <- endline$l_1
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(l_1)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(l_1)
+
+# Combine data into a data frame
+df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample)),
+             rep("Baseline Treatment", length(baseline_treatment$l_2_n)),
+             rep("Baseline Control", length(baseline_control$l_2_n)),
+             rep("Endline Full Sample", length(endline_full_sample)),
+             rep("Endline Treatment", length(endline_treatment$l_1)),
+             rep("Endline Control", length(endline_control$l_1))),
+  Value = c(baseline_full_sample, baseline_treatment$l_2_n, baseline_control$l_2_n,
+            endline_full_sample, endline_treatment$l_1, endline_control$l_1)
+)
+
+# Reorder Factor variable according to specified order
+df$Factor <- factor(df$Factor, levels = c("Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+                                          "Endline Full Sample", "Endline Treatment", "Endline Control"))
+
+# Calculate means for each group
+mean_values <- aggregate(Value ~ Factor, data = df, FUN = mean)
+#Plot
+ggplot(df, aes(x = Factor, y = Value, fill = Factor)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5) +  # Add jitter for better visualization
+  geom_text(data = mean_values, 
+            aes(x = Factor, y = max(Value) - 10, 
+                label = paste("\u03BC:", round(Value, 2))),
+            vjust = 11, size = 3, fontface = "bold", color = "black") +
+  labs(title = "Comparison of Total Payroll Employees",
+       x = "",
+       y = "Total Payroll Employees") +  # Removed fill label
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA)) +
+  coord_cartesian(ylim = c(0, 4000)) +
+  guides(fill = FALSE)  # Remove legend
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Boxplots for Total female employees in endline and baseline survey according group differences"}
+# Prepare data
+baseline_full_sample <- baseline$l_3_n[!is.na(baseline$l_3_n)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(l_3_n)) %>%
+  select(l_3_n)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(l_3_n)) %>%
+  select(l_3_n)
+
+endline_full_sample <- endline$l_2
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(l_2)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(l_2)
+
+# Combine data into a data frame
+df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample)),
+             rep("Baseline Treatment", length(baseline_treatment$l_3_n)),
+             rep("Baseline Control", length(baseline_control$l_3_n)),
+             rep("Endline Full Sample", length(endline_full_sample)),
+             rep("Endline Treatment", length(endline_treatment$l_2)),
+             rep("Endline Control", length(endline_control$l_2))),
+  Value = c(baseline_full_sample, baseline_treatment$l_3_n, baseline_control$l_3_n,
+            endline_full_sample, endline_treatment$l_2, endline_control$l_2)
+)
+
+# Reorder Factor variable according to specified order
+df$Factor <- factor(df$Factor, levels = c("Baseline Full Sample", "Baseline Treatment", "Baseline Control","Endline Full Sample", "Endline Treatment", "Endline Control"))
+
+# Calculate means for each group
+mean_values <- aggregate(Value ~ Factor, data = df, FUN = mean)
+#Plot
+ggplot(df, aes(x = Factor, y = Value, fill = Factor)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA, coef = 1.5) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5) +  # Add jitter for better visualization
+  geom_text(data = mean_values, 
+            aes(x = Factor, y = max(Value) - 10, 
+                label = paste("\u03BC =", round(Value, 2))),
+            vjust = 9.5, size = 3, fontface = "bold", color = "black") +
+  labs(title = "Comparison of Total female employees",
+       x = "",
+       y = "Total female Employees") +  # Removed fill label
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA)) +
+  coord_cartesian(ylim = c(0, 4000)) +
+  guides(fill = FALSE)  # Remove legend
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Boxplots for Average starting salary of newly employed low skill worker in endline and baseline survey according group differences"}
+# Prepare data
+baseline_full_sample <- baseline$l_20l[!is.na(baseline$l_20l)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(l_20l)) %>%
+  select(l_20l)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(l_20l)) %>%
+  select(l_20l)
+
+endline_full_sample <- endline$l_17
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(l_17)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(l_17)
+
+# Combine data into a data frame
+df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample)),
+             rep("Baseline Treatment", length(baseline_treatment$l_20l)),
+             rep("Baseline Control", length(baseline_control$l_20l)),
+             rep("Endline Full Sample", length(endline_full_sample)),
+             rep("Endline Treatment", length(endline_treatment$l_17)),
+             rep("Endline Control", length(endline_control$l_17))),
+  Value = c(baseline_full_sample, baseline_treatment$l_20l, baseline_control$l_20l,
+            endline_full_sample, endline_treatment$l_17, endline_control$l_17)
+)
+
+# Reorder Factor variable according to specified order
+df$Factor <- factor(df$Factor, levels = c("Baseline Full Sample", "Baseline Treatment", "Baseline Control","Endline Full Sample", "Endline Treatment", "Endline Control"))
+
+# Calculate means for each group
+mean_values <- aggregate(Value ~ Factor, data = df, FUN = mean)
+#Plot
+ggplot(df, aes(x = Factor, y = Value, fill = Factor)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5) +  # Add jitter for better visualization
+  geom_text(data = mean_values, 
+            aes(x = Factor, y = max(Value) - 10, 
+                label = paste("\u03BC =", round(Value, 2))),
+            vjust = 15, size = 3, fontface = "bold", color = "black") +
+  labs(title = "Average starting salary of newly employed low skill worker",
+       x = "",
+       y = "Amount in ETB") +  # Removed fill label
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA)) +
+  coord_cartesian(ylim = c(0, 3000)) +
+  guides(fill = FALSE)  # Remove legend
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Boxplots for Total annual sales of newly employed low skill worker in endline and baseline survey according group differences"}
+# Prepare data
+# Transform baseline data to thousands
+baseline_full_sample <- baseline$rc1_1[!is.na(baseline$rc1_1)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(rc1_1)) %>%
+  select(rc1_1)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(rc1_1)) %>%
+  select(rc1_1)
+
+endline$rc_1 <- endline$rc_1 / 1000
+endline_full_sample <- na.omit(endline$rc_1)
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(rc_1) %>%
+  na.omit(rc_1) 
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(rc_1) %>%
+  na.omit(rc_1) 
+
+
+# Combine data into a data frame
+df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample)),
+             rep("Baseline Treatment", length(baseline_treatment$rc1_1)),
+             rep("Baseline Control", length(baseline_control$rc1_1)),
+             rep("Endline Full Sample", length(endline_full_sample)),
+             rep("Endline Treatment", length(endline_treatment$rc_1)),
+             rep("Endline Control", length(endline_control$rc_1))),
+  Value = c(baseline_full_sample, baseline_treatment$rc1_1, baseline_control$rc1_1,
+            endline_full_sample, endline_treatment$rc_1, endline_control$rc_1)
+)
+
+# Reorder Factor variable according to specified order
+df$Factor <- factor(df$Factor, levels = c("Baseline Full Sample", "Baseline Treatment", "Baseline Control","Endline Full Sample", "Endline Treatment", "Endline Control"))
+
+# Calculate means for each group
+mean_values <- aggregate(Value ~ Factor, data = df, FUN = mean)
+
+#Plot
+ggplot(df, aes(x = Factor, y = Value, fill = Factor)) +
+  geom_boxplot(width = 0.5, outlier.shape = NA, coef = 1.5 ) +
+  geom_jitter(width = 0.2, size = 1, alpha = 0.5) +  # Add jitter for better visualization
+  labs(title = "Total annual sales",
+       x = "",
+       y = "Amount in ETB") +  # Removed fill label
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA)) +
+  coord_cartesian(ylim = c(0, 400000)) +
+  guides(fill = FALSE)  # Remove legend
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Have buyers ever asked you about labour standards at your establishment? in endline and baseline survey according group differences in percentage"}
+
+baseline_full_sample <- baseline$wc_3[!is.na(baseline$wc_3)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(wc_3)) %>%
+  select(wc_3)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(wc_3)) %>%
+  select(wc_3)
+
+endline_full_sample <- endline$wc_3
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(wc_3)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(wc_3)
+
+# Calculate proportions
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("No, never", "Yes, but not always", "Yes, Almost every time", "Yes, Always"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Convert proportions to percentages
+proportions_df$Proportion <- proportions_df$Proportion * 100
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd") 
+
+# Filter out values equal to 0%
+proportions_df <- proportions_df %>%
+  filter(Proportion != 0)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(data = proportions_df[proportions_df$Proportion != 0, ],
+            aes(label = paste0(round(Proportion), "%"), y = Proportion),
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(title = "Worker concerns about working conditions",
+       x = "",
+       y = "Share of firms in %",
+       fill = "Response") +
+  scale_fill_manual(values = custom_palette, name = "Response",
+                    labels = c("No, never", "Yes, Almost every time", "Yes, Always",  "Yes, but not always")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Worker concerns about working conditions in endline and baseline survey according group differences in percentage"}
+
+baseline_full_sample <- baseline$wc6_1[!is.na(baseline$wc6_1)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(wc6_1)) %>%
+  select(wc6_1)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(wc6_1)) %>%
+  select(wc6_1)
+
+endline_full_sample <- endline$wc_6
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(wc_6)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(wc_6)
+
+# Calculate proportions
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("Not applicable", "Not concerned", "Slightly concerned", "Somewhat concerned", "Very concerned"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Convert proportions to percentages
+proportions_df$Proportion <- proportions_df$Proportion * 100
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e", "#2ca02c", "#9467bd", "#117733") 
+
+# Filter out values equal to 0%
+proportions_df <- proportions_df %>%
+  filter(Proportion != 0)
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(data = proportions_df[proportions_df$Proportion != 0, ],
+            aes(label = paste0(round(Proportion), "%"), y = Proportion),
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(title = "Worker concerns about working conditions",
+       x = "",
+       y = "Share of firms in %",
+       fill = "Response") +
+  scale_fill_manual(values = custom_palette, name = "Response",
+                    labels = c("Very Concerned", "Somewhat Concerned", "Slightly Concerned", "Not Concerned", "Not Applicable")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Trade union in the factory in endline and baseline survey according group differences in percentage"}
+
+# Convert cb_1 column to "Yes" and "No"
+baseline$cb_1 <- ifelse(baseline$cb_1 == 0, "No", "Yes")
+baseline$cb_1 <- factor(baseline$cb_1, levels = c("No", "Yes"))
+baseline_full_sample <- baseline$cb_1
+# Filter and select columns for treatment and cb_1
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment") %>%
+  select(cb_1)
+baseline_control <- baseline %>%
+  filter(treatment == "Control") %>%
+  select(cb_1)
+
+endline_full_sample <- endline$cb_1
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(cb_1)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(cb_1)
+
+# Calculate proportions
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("Yes", "No"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Convert proportions to percentages
+proportions_df$Proportion <- proportions_df$Proportion * 100
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e") 
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(data = proportions_df[proportions_df$Proportion != 0, ],
+            aes(label = paste0(round(Proportion), "%"), y = Proportion),
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(title = "Trade union in the factory",
+       x = "",
+       y = "Share of firms in %",
+       fill = "Response") +
+  scale_fill_manual(values = custom_palette, name = "Response",
+                    labels = c("Yes", "No")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Management attitude to unions in endline and baseline survey according group differences in percentage"}
+
+baseline_full_sample <- baseline$cb_4[!is.na(baseline$cb_4)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(cb_4)) %>%
+  select(cb_4)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(cb_4)) %>%
+  select(cb_4)
+
+endline_full_sample <- endline$cb_4
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(cb_4)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(cb_4)
+
+# Calculate proportions
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("In favor of trade union membership", "Not in favor of trade union membership", "Neutral about it"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Convert proportions to percentages
+proportions_df$Proportion <- proportions_df$Proportion * 100
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e","#2ca02c") 
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(data = proportions_df[proportions_df$Proportion != 0, ],
+            aes(label = paste0(round(Proportion), "%"), y = Proportion),
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(title = "Management attitude to unions",
+       x = "",
+       y = "Share of firms in %",
+       fill = "Response") +
+  scale_fill_manual(values = custom_palette, name = "Response",
+                    labels = c("In favor of trade union membership","Neutral about it", "Not in favor of trade union membership")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Union staff allowed into factory in endline and baseline survey according group differences in percentage"}
+
+baseline_full_sample <- baseline$cb_9[!is.na(baseline$cb_9)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(cb_9)) %>%
+  select(cb_9)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(cb_9)) %>%
+  select(cb_9)
+
+endline$cb_9 <- factor(endline$cb_9, levels = levels(baseline$cb_9))
+endline_full_sample <- endline$cb_9
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(cb_9)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(cb_9)
+
+# Calculate proportions
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("Yes", "No"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Convert proportions to percentages
+proportions_df$Proportion <- proportions_df$Proportion * 100
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e") 
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(data = proportions_df[proportions_df$Proportion != 0, ],
+            aes(label = paste0(round(Proportion), "%"), y = Proportion),
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(title = "Union staff allowed into factory",
+       x = "",
+       y = "Share of firms in %",
+       fill = "Response") +
+  scale_fill_manual(values = custom_palette, name = "Response",
+                    labels = c("No", "Yes")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for UCollective bargaining in place in endline and baseline survey according group differences in percentage"}
+
+baseline_full_sample <- baseline$cb_11[!is.na(baseline$cb_11)]
+baseline_treatment <- baseline %>%
+  filter(treatment == "Treatment" & !is.na(cb_11)) %>%
+  select(cb_11)
+baseline_control <- baseline %>%
+  filter(treatment == "Control" & !is.na(cb_11)) %>%
+  select(cb_11)
+
+endline$cb_11 <- factor(endline$cb_11, levels = levels(baseline$cb_11))
+endline_full_sample <- endline$cb_11
+endline_treatment <- endline %>%
+  filter(treatment == "Treatment") %>%
+  select(cb_11)
+endline_control <- endline %>%
+  filter(treatment == "Control") %>%
+  select(cb_11)
+
+# Calculate proportions
+baseline_full_sample_prop <- prop.table(table(baseline_full_sample))
+baseline_treatment_prop <- prop.table(table(baseline_treatment))
+baseline_control_prop <- prop.table(table(baseline_control))
+endline_full_sample_prop <- prop.table(table(endline_full_sample))
+endline_treatment_prop <- prop.table(table(endline_treatment))
+endline_control_prop <- prop.table(table(endline_control))
+
+# Combine proportions into a data frame
+proportions_df <- data.frame(
+  Factor = c(rep("Baseline Full Sample", length(baseline_full_sample_prop)),
+             rep("Baseline Treatment", length(baseline_treatment_prop)),
+             rep("Baseline Control", length(baseline_control_prop)),
+             rep("Endline Full Sample", length(endline_full_sample_prop)),
+             rep("Endline Treatment", length(endline_treatment_prop)),
+             rep("Endline Control", length(endline_control_prop))),
+  Response = rep(c("Yes", "No"), times = 6),
+  Proportion = c(baseline_full_sample_prop, baseline_treatment_prop, baseline_control_prop,
+                 endline_full_sample_prop, endline_treatment_prop, endline_control_prop)
+)
+
+# Convert proportions to percentages
+proportions_df$Proportion <- proportions_df$Proportion * 100
+
+# Reorder factor levels
+proportions_df$Factor <- factor(proportions_df$Factor, levels = c(
+  "Baseline Full Sample", "Baseline Treatment", "Baseline Control",
+  "Endline Full Sample", "Endline Treatment", "Endline Control"
+))
+
+# Define custom color palette
+custom_palette <- c("#1f77b4", "#ff7f0e") 
+
+# Plot
+ggplot(proportions_df, aes(x = Factor, y = Proportion, fill = Response)) +
+  geom_bar(stat = "identity", position = "stack") +
+  geom_text(data = proportions_df[proportions_df$Proportion != 0, ],
+            aes(label = paste0(round(Proportion), "%"), y = Proportion),
+            position = position_stack(vjust = 0.5), size = 3, color = "black") +
+  labs(title = "Collective bargaining in place",
+       x = "",
+       y = "Share of firms in %",
+       fill = "Response") +
+  scale_fill_manual(values = custom_palette, name = "Response",
+                    labels = c("No", "Yes")) +
+  theme_minimal(base_size = 10) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8, color = "black"),
+        axis.text.y = element_text(size = 8, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 10, color = "black"),
+        axis.title.y = element_text(face = "bold", size = 10, color = "black"),
+        legend.title = element_text(face = "bold", size = 8, color = "black"),
+        legend.text = element_text(size = 8, color = "black"),
+        plot.title = element_text(face = "bold", size = 12, hjust = 0.5, color = "black"),
+        panel.grid.major = element_line(color = "gray", size = 0.5),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill = "white", color = "black"),
+        panel.border = element_rect(color = "black", fill = NA),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key = element_rect(colour = NA),
+        legend.position = "right")
+```

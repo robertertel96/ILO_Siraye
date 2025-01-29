@@ -1,0 +1,1024 @@
+---
+title: "ILO Siraye"
+subtitle: "Data Analysis Plan Part 1"
+author: "Robert Ertel"
+format: pdf
+editor: visual
+execute: 
+  echo: false
+---
+
+```{r echo = FALSE , message=FALSE}
+setwd("~/Desktop/ILO Siraye")
+
+# Set CRAN mirror
+#options(repos = c(CRAN = "https://cran.r-project.org"))
+#install.packages("haven")
+#install.packages("dplyr")
+#install.packages("ggplot2")
+#install.packages("knitr")
+library(knitr)
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(ggstatsplot)
+```
+
+```{r echo = FALSE}
+data <- read_dta("ONE ILO pooled worker and firm data (no Saba).dta")
+data <- haven::as_factor(data, levels="labels")
+
+```
+
+```{r echo = FALSE}
+variables_23_firm <- c( "s1","industry", "indupark", "ownershhip", "owners", "prodbase", "startop", "l_1", "l_2", "l_7", "l_28", "l_29", "l_30", "cb_1", "cb_2", "cb_3", "cb_4", "cb_11", "cb_12", "cb_16", "cb_24", "cb_25", "cb_28", "m_1", "m_9", "p_5_p1", "p_6_p1", "p_9_p1", "p_10_p1", "ex_1", "ex_5", "ex_19")
+
+firm_level_23 <- firm_level_23 %>%
+  select(all_of(variables_23_firm))
+
+worker_level_23$time <- 2
+worker_level_23 <- worker_level_23 %>%
+  rename(s1 = factory_id1)
+
+merged_23 <- merge(worker_level_23, firm_level_23, by = "s1", all.x = TRUE)
+```
+
+```{r echo = FALSE}
+variables_19_firm <- c("s1", "rc_1", "indu_park", "rc_5", "rc5_2_1", "rc5_3", "rc_6", "rc_10", "l_2_n", "l_3_n", "l_8_n", "l_18l", "l_29l", "l_30l", "l_31l", "cb_1", "cb_3", "cb3_1", "cb_4", "cb_11", "cb_12", "cb_16", "cb_24", "cb_25", "cb_28", "m_1", "m_25", "p8_pcs", "p9_pcs", "p13", "ps13_1", "ex3_1n", "ex_4", "ex21")
+
+firm_level_19 <- firm_level_19 %>%
+  select(all_of(variables_19_firm))
+worker_level_19$time <- 1
+merged_19 <- merge(worker_level_19, firm_level_19, by = "s1", all.x = TRUE)
+
+merged_23 <- merged_23 %>%
+  rename_with(~paste0(., "_2023"))
+merged_19 <- merged_19 %>%
+  rename_with(~paste0(., "_2019"))
+merged_23 <- merged_23 %>%
+  rename(ID = s1_2023)
+merged_19 <- merged_19 %>%
+  rename(ID = s1_2019)
+
+data <- bind_rows(merged_23, merged_19)
+
+
+write_dta(data, "data.dta")
+```
+
+## 1. Quality Control
+
+### 1.1 Outliers and Boxplots
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+df1 <- data.frame(
+  Remittance = worker_level_23$remittance_lvl,
+  Base_Salary = worker_level_23$salary_base3,
+  Takehome_Salary = worker_level_23$salary_th3)
+
+df1_long <- tidyr::gather(df1, key = "Variable", value = "Value")
+
+ggplot(df1_long, aes(x = Variable, y = Value)) +
+  geom_boxplot(fill = c("darkred", "blue", "darkgreen"),  alpha = c(.4, .4, .4)) +
+  labs(title = "Outliers key Variables",
+       subtitle = "Comparative across Variables") +
+  xlab(" ") + ylab("Amount in (ETB)") +
+  theme_clean(base_family = "serif") +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 2.5, colour = "darkred")
+
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+#2sd from mean outliers
+threshold_remittance_lvl = 19118
+threshold_salary_base3 = 8054
+threshold_salary_th3 = 6590
+
+worker_level_23$outl_remittance_lvl <- ifelse(worker_level_23$remittance_lvl > threshold_remittance_lvl, 1, 0)
+worker_level_23$outl_salary_base3 <- ifelse(worker_level_23$salary_base3 >= threshold_salary_base3 | worker_level_23$salary_base3 < 0, 1, 0)
+worker_level_23$outl_salary_th3 <- ifelse(worker_level_23$salary_th3 >= threshold_salary_th3 | worker_level_23$salary_th3 < 0, 1, 0)
+hhincome2_num <- as.numeric(worker_level_23$hhincome2)
+worker_level_23$outl_hhincome2 <- ifelse(hhincome2_num > 14.5, 1, 0)
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+#set start year as numeric
+worker_level_23$start_year_label <- as.numeric(worker_level_23$start_year_label)
+#the conditions 
+condition_base3 <- with(worker_level_23, salary_base3 >= 5000 & job_role != "Line supervisor" & !(edu_highest %in% c("BA or BSc degree", "MA or MSc degree","PhD")) & start_year_label >= 2010)
+condition_th3 <- with(worker_level_23, salary_th3 >= 5000 & job_role != "Line supervisor" & !(edu_highest %in% c("BA or BSc degree", "MA or MSc degree","PhD")) & start_year_label >= 2010)
+condition_hh_income2_salary_th3 <- with(worker_level_23, hhincome2_num < salary_th3)
+
+#set all conditions as integers 
+worker_level_23$high_salary_base3_condition <- as.integer(condition_base3)
+worker_level_23$high_salary_th3_condition <- as.integer(condition_th3)
+worker_level_23$condition_hhincome2 <- as.integer(condition_hh_income2_salary_th3)
+```
+
+## **2. Data management**
+
+Firms **not** included in 2019 but in 2023: (12 firms)
+
+1.  JP Garment (857)
+
+2.  Edget Garment (256)
+
+3.  Sabahar Plc (259)
+
+4.  Linde (860)
+
+5.  CBA Garment (835)
+
+6.  Epic (826)
+
+7.  Antex Textile (814)
+
+8.  Newbridge (882)
+
+9.  Injo (841)
+
+10. Nasa (879)
+
+11. Jay Jay (203)
+
+12. Trybus (893)
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+firm_level_19$included_in_endline <- c(0, 1, 0, 0, 0, 0, 0,
+                                       0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1,
+                                       1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 
+                                       0, 0,0, 0, 0, 1, 0, 1, 0, 0, 0, 
+                                       1, 0,0, 1, 1, 1, 1, 0, 1, 0, 0, 
+                                       0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 
+                                       1, 0, 1, 1, 1, 0, 0, 1, 0)
+
+firm_level_19$included_in_endline<- as.factor (firm_level_19$included_in_endline)
+
+firm_level_19 <- merge(firm_level_19, firm_level_23[, c("s1", "selected")], by = "s1", all.x = TRUE)
+
+#Please add the variables s7 (name of firm), ‘selected’ and ‘included in endline’ to the 2019 worker data set. To add these vars you will need to use var s1 (firm id) which exists in both the 2019 firm and worker datasets.
+
+merged_worker_19 <- merge(worker_level_19, firm_level_19[, c("s1", "s7", "selected", "included_in_endline")], by = "s1", all.x = TRUE)
+```
+
+Crosstable for Number of IDs from baseline survey, which are included in the endline and corresponding group assignments.
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+cross_tab <- table(merged_worker_19$selected, merged_worker_19$included_in_endline)
+```
+
+|                 | Not Included in endline | Included in endline |
+|-----------------|-------------------------|---------------------|
+| Control-Main    | 0                       | 111                 |
+| Control-Reserve | 0                       | 24                  |
+| Treatment       | 0                       | 213                 |
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+#Produce a long dataset combining the 2019 and 2023 worker level data.
+selected_variables_23 <- c("factory_id1", "baseline_id", "name_of_the_firm", "in_baseline", "region", "selected", "resp_id", "gender", "age", "migrated", "marital", "disability", "hh_size", "remittance_out", "remittance_in", "remittance_lvl", "children", "care1", "care3", "care4", "read", "english", "amharic", "edu_highest", "edu_years", "start_year", "factory_type", "job_role", "beforejob", "salary_base3", "salary_th3", "stablewage1", "stablewage2", "workinghours", "workingdays", "bonus", "deductions", "savings", "savings_lvl", "hhincome2", "targets", "targets_meet", "commute", "transport", "transport_sub", "housing", "housing_sub", "meals", "ot_hours", "ot_choice", "ot_pay1", "nursing", "leave", "absence", "training_for", "training_loc", "training_loc_2", "training_loc_3", "training_result", "training_result_1", "training_result_2", "training_result_3", "training_result_4", "training_result_5", "training_result_6", "training_result_7", "training_result_8", "training_result_9", "training_job", "training_use", "ilo", "ilo_satisfied", "ilo_applied", "computer", "conditions", "grievance", "best_1", "best_2", "worst_1", "worst_2", "expectation", "recognition", "purpose", "development", "friend", "changejob", "exp_tenure", "plans", "wellbeing", "contract_type", "contract_comp", "contract_copy", "union", "tu_member1", "tu_member2", "tu_attitude", "tu_hiring", "tu_busting", "tu_firing", "tu_threat", "coll_barg", "cb_copy", "cb_refuse", "complaint", "complaint_use1", "complaint_use2", "complaint_outc", "interests", "strike_5yrs", "strike_1yr", "strike_self", "strike_quant", "strike_reason", "strike_outcome", "strike_violence", "strike_prevent", "law1", "law2", "law3", "law4", "accidents_tot", "accident_self", "health_cover", "health_cost", "concern", "osh_com1", "osh_com2", "osh_aware1", "osh_aware2", "chemicals", "washing", "toilets", "toilet_quality", "hs_onsite", "hs_quality", "ownhealth", "temperature", "noise", "water", "ppcce", "ppcce_train", "drills", "safetravel1", "safetravel2", "abuse_verbal1", "abuse_managers", "harass_managers", "harass_coll", "harass_concern1", "relationship1", "unfair1", "unfair1_1", "unfair1_2", "unfair1_3", "unfair1_4", "unfair1_5", "outl_remittance_lvl","outl_hhincome2","outl_salary_base3", "outl_salary_th3", "high_salary_base3_condition", "high_salary_th3_condition", "condition_hhincome2")
+
+selected_variables_19 <- c("s1","s7", "resp_id","b1", "b2", "b3", "b4_1", "b5", "b24", "b6", "b9_1", "b9_2", "b9_4", "b10", "b11", "b12", "b12_1", "b14", "b13", "e3_1", "e4_1", "e36", "e10_1_clean", "e10_2_clean", "e2", "e10_3_clean", "e10_4", "e13", "e14_2", "e15", "e28", "e18", "e16", "e19", "e20", "e22", "ot9", "ot11", "ot7","ot27", "ot30", "ot31", "b20", "b20_1_1","b20_1_2","b20_1_3", "b22_1", "b22_2", "b22_3", "b22_4", "b22_5", "b23", "e24", "e25", "e26", "e29", "e27", "e30", "e31", "e32", "cb1", "cb3", "cb5", "cb6", "cb7", "cb8", "cb9", "cb10", "cb11", "cb13", "cb14", "cb15", "cb16", "cb28", "cb29", "cb30_1", "cb30_2", "cb30_3_1", "cb30_3_2", "cb30_3_3","cb30_3_4", "cb30_3_5","cb30_3_7", "cb30_6", "cb31", "cb37", "cb38", "cb39", "cb40", "osh1", "osh2", "osh3", "osh3_1","osh4","osh5_1","osh5_2","osh5_3","osh5_4","osh5_5", "osh6", "osh9", "osh10", "osh10_1", "osh13", "osh13_2", "osh13_3", "osh15", "osh16", "osh19", "osh21", "osh22", "osh25", "osh26", "d0", "d7_1", "d7_2", "d7_3","d7_6_1", "d7_6_2", "d7_6_3", "d7_6_4", "d7_6_5","d7_6_6", "d7_7_1", "d7_7_2", "d7_7_3", "d7_7_4","selected", "included_in_endline")
+
+df_23 <- worker_level_23[selected_variables_23]
+df_23$in_baseline <- as.factor(df_23$in_baseline)
+df_23$selected <- as.factor(df_23$selected)
+df_19 <- merged_worker_19[selected_variables_19]
+
+#Export in .dta
+#df_23 <- df_23 %>%
+#  rename_with(~paste0(., "_2023"))
+#df_19 <- df_19 %>%
+#  rename_with(~paste0(., "_2019"))
+  
+
+
+#appended_df <- bind_rows(df_23, df_19)
+#write_dta(appended_df, "appended_data.dta")
+
+```
+
+## **3. Descriptives**
+
+### **3.1 Sample characteristics**
+
+**EXCLUDED** all observations from firms that were not included in the endline survey.
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+df_19 <- subset(df_19, !(included_in_endline == 0))
+
+summary_table <- data.frame(
+  Variable = c("Total Observations", "Female (Number)", "Female (Share)", "Men (Number)", "Men (Share)", "Mean Age", "Share Migrated", "Share Married", "Share with Disability", "Mean Household Size", "Mean Number of Children"),
+  `2019` = NA,
+  `2023` = NA
+)
+summary_table[1, 2] <- round(length(df_19$included_in_endline),0)
+summary_table[1, 3] <- length(df_23$baseline_id)
+summary_table[2, 2] <- sum(df_19$b2 == "Female")
+summary_table[2, 3] <- sum(df_23$gender == "Female")
+summary_table[3, 2] <- sum(df_19$b2 == "Female") / length(df_19$b2)
+summary_table[3, 3] <- sum(df_23$gender == "Female") / length(df_23$gender)
+summary_table[4, 2] <- sum(df_19$b2 == "Male")
+summary_table[4, 3] <- sum(df_23$gender == "Male")
+summary_table[5, 2] <- sum(df_19$b2 == "Male") / length(df_19$b2)
+summary_table[5, 3] <- sum(df_23$gender == "Male") / length(df_23$gender)
+summary_table[6, 2] <- mean(df_19$b3)
+summary_table[6, 3] <- mean(df_23$age)
+migrated_wo_Na <- na.omit(df_19$b4_1)
+summary_table[7, 2] <- sum(migrated_wo_Na == "Yes") / length(migrated_wo_Na)
+summary_table[7, 3] <- sum(df_23$migrated == "Yes") / length(df_23$migrated)
+marital_wo_Na <- na.omit(df_19$b5)
+summary_table[8, 2] <- sum(marital_wo_Na == "Married") / length(marital_wo_Na)
+summary_table[8, 3] <- sum(df_23$marital == "Married") / length(df_23$marital)
+summary_table[9, 2] <- sum(df_19$b24 == "Yes") / length(df_19$b24)
+summary_table[9, 3] <- sum(df_23$disability == "Yes") / length(df_23$disability)
+summary_table[10, 2] <- mean(df_19$b6)
+df_23$hh_size <- as.numeric(df_23$hh_size)
+summary_table[10, 3] <- mean(df_23$hh_size)
+summary_table[11, 2] <- mean(df_19$b10)
+df_23$children <- as.numeric(df_23$children)
+summary_table[11, 3] <- mean(df_23$children)
+
+#round numbers to a reasonable number of decimal places
+round_reasonable <- function(x) {
+  ifelse(abs(x) < 10, round(x, 2), round(x))
+}
+
+summary_table[, 2:3] <- lapply(summary_table[, 2:3], round_reasonable)
+```
+
+| Variable                | Baseline | Endline |
+|-------------------------|----------|---------|
+| Total Observations      | 372      | 1127    |
+| Female (Number)         | 261      | 907     |
+| Female (Share)          | 0.70     | 0.80    |
+| Men (Number)            | 111      | 220     |
+| Men (Share)             | 0.30     | 0.20    |
+| Mean Age                | 24       | 26      |
+| Share Migrated          | 0.60     | 0.54    |
+| Share Married           | 0.23     | 0.32    |
+| Share with Disability   | 0.06     | 0.01    |
+| Mean Household Size     | 4.14     | 2.99    |
+| Mean Number of Children | 0.59     | 1.43    |
+
+### **3.2 Endline descriptives**
+
+::: callout-note
+## Frequency tables for variables in the endline survey
+
+All frequencies were transformed into proportions of the total sample size (n=1127). For comparative reasons with added baseline proportions of the total sample size in baseline survey (n=915).
+:::
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+selected_variables_23 <- c("remittance_out", "remittance_in","children", "care1", "care3", "care4","read", "english", "amharic", "edu_highest", "edu_years", "stablewage1", "stablewage2", "workinghours", "workingdays", "bonus", "deductions","savings", "savings_lvl", "targets", "targets_meet", "commute", "transport","transport_sub", "housing", "housing_sub", "meals", "ot_hours", "ot_choice", "ot_pay1","nursing", "leave", "absence", "training_for", "training_loc", "training_loc_2", "training_loc_3", "training_job", "training_use", "ilo", "ilo_satisfied", "ilo_applied", "computer", "conditions", "grievance", "best_1", "best_2", "worst_1", "worst_2", "expectation", "recognition", "purpose", "development", "friend", "changejob", "exp_tenure", "plans", "wellbeing", "contract_type", "contract_comp", "contract_copy", "union", "tu_member1", "tu_member2", "tu_attitude", "tu_hiring", "tu_busting", "tu_firing", "tu_threat", "coll_barg", "cb_copy", "cb_refuse", "complaint", "complaint_use1", "complaint_use2", 
+"complaint_outc", "interests", "strike_5yrs", "strike_1yr", "strike_self", "strike_quant", "strike_reason", "strike_outcome", "strike_violence", "strike_prevent", "law1", "law2", "law3", "law4", "accidents_tot", "accident_self", "health_cover", "health_cost", "concern", "osh_com1", "osh_com2", "osh_aware2", "chemicals", "washing", "toilets",  "toilet_quality", "hs_onsite", "hs_quality", "ownhealth", "temperature", "noise", "water", "ppcce", "ppcce_train", "drills", "safetravel1", "safetravel2", "abuse_verbal1", "abuse_managers", "harass_managers", "harass_coll", "harass_concern1", "relationship1", "unfair1_1", "unfair1_2", "unfair1_3", "unfair1_4", "unfair1_5")
+categorical_freq_table <- sapply(df_23[selected_variables_23], table)
+
+selected_variables_19 <- c("b9_1", "b9_2", "b11", "b12", "b12_1", "b14", "b13", "e28", "e18","e16", "e19", "e20", "e22", "ot9", "ot11", "ot7","ot27", "ot30", "ot31", "b20", "b23", "e24", "e25", "e26", "e29", "e27", "e30", "e31", "e32", "cb1", "cb3", "cb5", "cb6", "cb8", "cb9", "cb10", "cb11", "cb14", "cb15", 
+"cb16", "cb28", "cb29", "cb30_1", "cb30_6", "cb31", "cb37", "cb38", "cb39", "cb40", "osh1", "osh2", "osh3", "osh3_1", "osh6", "osh9", "osh10",  "osh10_1", "osh13", "osh13_2", "osh13_3", "osh15", "osh16", "osh19", "osh21", "osh22", "osh25", "osh26","d0", "d7_1", "d7_2", "d7_3")
+categorical_freq_table_19 <- sapply(worker_level_19[selected_variables_19], table)
+
+```
+
+| Variable          | Response Item                                                            | Percentage of sample size in 2019 | Percentage of sample size in 2023 |
+|-------------------|--------------------------------------------------------------------------|-----------------------------------|-----------------------------------|
+| remittance_out    | Yes                                                                      | 49.86%                            | 26.61%                            |
+|                   | No                                                                       | 44.92%                            | 70.79%                            |
+|                   | I don't know                                                             |                                   | 2.13%                             |
+|                   | I don't want to answer                                                   |                                   | 0.44%                             |
+| remittance_in     | Yes                                                                      | 14.52%                            | 24.15%                            |
+|                   | No                                                                       | 28.52%                            | 75.19%                            |
+|                   | I don't know                                                             |                                   | 0.62%                             |
+|                   | I don't want to answer                                                   |                                   | 0.09%                             |
+| care1             | 0                                                                        |                                   | 73.77%                            |
+|                   | 1                                                                        |                                   | 12.47%                            |
+|                   | 2                                                                        |                                   | 9.23%                             |
+|                   | 3                                                                        |                                   | 2.49%                             |
+|                   | 4                                                                        |                                   | 1.53%                             |
+|                   | 5                                                                        |                                   | 0.35%                             |
+|                   | 6                                                                        |                                   | 0.35%                             |
+|                   | 7 +                                                                      |                                   | 0.35%                             |
+| care3             | Yes                                                                      |                                   | 12.71%                            |
+|                   | No                                                                       |                                   | 87.29%                            |
+| care4             | All of it                                                                |                                   | 42.71%                            |
+|                   | More than half                                                           |                                   | 17.42%                            |
+|                   | About half                                                               |                                   | 24.21%                            |
+|                   | Less than half                                                           |                                   | 7.92%                             |
+|                   | I don’t cook or clean                                                    |                                   | 1.97%                             |
+| read              | Read and write                                                           | 82.51%                            | 92.89%                            |
+|                   | Read only                                                                | 10.93%                            | 3.38%                             |
+|                   | Neither read nor write                                                   | 6.01%                             | 3.20%                             |
+|                   | I don't want to answer                                                   |                                   | 0.71%                             |
+| english           | Read and write                                                           | 57.75%                            | 62.33%                            |
+|                   | Read only                                                                | 26.23%                            | 16.18%                            |
+|                   | Neither read nor write                                                   | 15.85%                            | 17.74%                            |
+|                   | I don't want to answer                                                   |                                   | 3.43%                             |
+| amharic           | Read and write                                                           | 74.86%                            | 87.06%                            |
+|                   | Read only                                                                | 12.78%                            | 4.09%                             |
+|                   | Neither read nor write                                                   | 12.35%                            | 6.86%                             |
+|                   | I don't want to answer                                                   |                                   | 2.99%                             |
+| edu_highest       | No formal education                                                      | 3.06%                             | 2.22%                             |
+|                   | Primary school incomplete                                                | 12.45%                            | 10.92%                            |
+|                   | Primary school complete                                                  | 17.14%                            | 18.80%                            |
+|                   | High school                                                              | 29.75%                            | 24.83%                            |
+|                   | Vocational school                                                        | 15.40%                            | 6.03%                             |
+|                   | Diploma (non-vocational)                                                 | 10.59%                            | 23.07%                            |
+|                   | BA or BSc degree                                                         | 10.37%                            | 12.97%                            |
+|                   | MA or MSc degree                                                         | 0.66%                             | 1.15%                             |
+|                   | PhD                                                                      | 0.55%                             | 0.00%                             |
+| edu_years         | 1                                                                        | 0.76%                             | 1.24%                             |
+|                   | 2                                                                        | 1.97%                             | 0.44%                             |
+|                   | 3                                                                        | 2.40%                             | 1.15%                             |
+|                   | 4                                                                        | 1.85%                             | 1.60%                             |
+|                   | 5                                                                        | 2.95%                             | 2.57%                             |
+|                   | 6                                                                        | 2.62%                             | 1.77%                             |
+|                   | 7                                                                        | 4.15%                             | 2.57%                             |
+|                   | 8                                                                        | 8.52%                             | 6.92%                             |
+|                   | 9                                                                        | 4.04%                             | 2.57%                             |
+|                   | 10                                                                       | 36.39%                            | 24.28%                            |
+|                   | 11                                                                       | 1.74%                             | 2.84%                             |
+|                   | 12 +                                                                     | 33.20%                            | 52.03%                            |
+| stablewage1       | Yes, I know roughly what I will be paid each month                       |                                   | 52.62%                            |
+|                   | No, my salary is unpredictable                                           |                                   | 47.26%                            |
+| stablewage2       | It is a serious problem                                                  |                                   | 27.52%                            |
+|                   | It is only a small problem                                               |                                   | 14.73%                            |
+|                   | It is not a problem                                                      |                                   | 2.35%                             |
+|                   | \-                                                                       |                                   | 0.44%                             |
+| bonus             | Yes                                                                      |                                   | 53.29%                            |
+|                   | No                                                                       |                                   | 45.33%                            |
+|                   | I don't know                                                             |                                   | 1.42%                             |
+| deductions        | Yes                                                                      |                                   | 48.76%                            |
+|                   | No                                                                       |                                   | 48.68%                            |
+|                   | I don't know                                                             |                                   | 2.49%                             |
+| savings           | Yes                                                                      |                                   | 24.41%                            |
+|                   | No                                                                       |                                   | 75.46%                            |
+| savings_lvl       | \<500                                                                    |                                   | 16.68%                            |
+|                   | 500-1000                                                                 |                                   | 5.23%                             |
+|                   | 1001-2000                                                                |                                   | 1.24%                             |
+|                   | 2001-3000                                                                |                                   | 0.98%                             |
+|                   | 3001-4000                                                                |                                   | 0.09%                             |
+|                   | 4001-5000                                                                |                                   | 0.09%                             |
+|                   | \>5000                                                                   |                                   | 0.09%                             |
+| targets           | Individual targets                                                       |                                   | 19.35%                            |
+|                   | Group target, e.g. team or production line                               |                                   | 60.62%                            |
+|                   | Both group and individual                                                |                                   | 14.74%                            |
+|                   | I don't know                                                             |                                   | 5.41%                             |
+| targets_meet      | Always                                                                   |                                   | 41.30%                            |
+|                   | Usually                                                                  |                                   | 50.42%                            |
+|                   | Sometimes                                                                |                                   | 7.63%                             |
+|                   | Never                                                                    |                                   | 0.62%                             |
+| commute           | Close to my home (in my local area)                                      | 18.46%                            | 23.92%                            |
+|                   | Within 5 km from my home                                                 | 26.45%                            | 40.86%                            |
+|                   | Within 10 km from my home                                                | 21.31%                            | 22.21%                            |
+|                   | More than 10 km from my home                                             | 33.77%                            | 13.03%                            |
+| transport         | Yes                                                                      | 56.83%                            | 53.40%                            |
+|                   | No                                                                       | 38.69%                            | 46.47%                            |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+| transport_sub     | Yes                                                                      | 23.93%                            | 17.76%                            |
+|                   | No                                                                       | 67.21%                            | 28.63%                            |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+| housing           | Yes                                                                      | 8.20%                             | 2.92%                             |
+|                   | No                                                                       | 83.94%                            | 97.03%                            |
+|                   | I don't know                                                             |                                   | 0.26%                             |
+| housing_sub       | Yes                                                                      | 5.57%                             | 7.81%                             |
+|                   | No                                                                       | 87.78%                            | 88.85%                            |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+| meals             | Yes                                                                      | 34.15%                            | 69.00%                            |
+|                   | No                                                                       | 52.05%                            | 29.89%                            |
+|                   | I don't know                                                             | 5.46%                             | 0.44%                             |
+| ot_hours          | 0                                                                        | 46.01%                            | 50.75%                            |
+|                   | 1-5                                                                      | 18.44%                            | 28.68%                            |
+|                   | 6-10                                                                     | 17.05%                            | 12.95%                            |
+|                   | 11-15                                                                    | 5.03%                             | 4.70%                             |
+|                   | 16-20                                                                    | 2.84%                             | 1.60%                             |
+|                   | \> 20                                                                    | 10.49%                            | 1.33%                             |
+| ot_choice         | Can always choose                                                        | 25.85%                            | 16.24%                            |
+|                   | Sometimes required                                                       | 33.33%                            | 22.01%                            |
+|                   | Always required                                                          | 18.22%                            | 9.57%                             |
+|                   | I don't know                                                             |                                   | 0.62%                             |
+|                   | I don’t want to answer                                                   |                                   | 0.80%                             |
+| ot_pay1           | Yes                                                                      | 35.30%                            | 20.78%                            |
+|                   | No                                                                       | 49.90%                            | 26.16%                            |
+|                   | I don't know                                                             |                                   | 1.86%                             |
+|                   | I don't want to answer                                                   |                                   | 0.44%                             |
+| nursing           | Yes                                                                      | 33.96%                            | 31.52%                            |
+|                   | No                                                                       | 39.34%                            | 61.12%                            |
+|                   | I don't know                                                             |                                   | 7.37%                             |
+| leave             | Yes                                                                      | 44.32%                            | 56.38%                            |
+|                   | No                                                                       | 46.44%                            | 42.40%                            |
+|                   | I don't know                                                             |                                   | 0.80%                             |
+|                   | I don't want to answer                                                   |                                   | 0.53%                             |
+| absence           | 0                                                                        | 50.05%                            | 59.32%                            |
+|                   | 1-3                                                                      | 41.0%                             | 35.83%                            |
+|                   | 4-6                                                                      | 5.25%                             | 3.45%                             |
+|                   | 7-12                                                                     | 1.64%                             | 1.06%                             |
+|                   | \>12                                                                     | 2.07%                             | 0.27%                             |
+| training_for      | Yes                                                                      | 31.03%                            | 30.88%                            |
+|                   | No                                                                       | 68.97%                            | 68.17%                            |
+|                   | I don't know                                                             |                                   | 0.44%                             |
+| training_sub      | Yes                                                                      |                                   | 15.61%                            |
+|                   | No                                                                       |                                   | 83.88%                            |
+|                   | I don't know                                                             |                                   | 0.44%                             |
+| training_job      | Yes                                                                      |                                   | 53.17%                            |
+|                   | No                                                                       |                                   | 44.92%                            |
+|                   | I don't know                                                             |                                   | 1.95%                             |
+| training_use      | Formal training                                                          |                                   | 7.10%                             |
+|                   | On-the-job training                                                      |                                   | 9.15%                             |
+|                   | Both were equally useful                                                 |                                   | 6.39%                             |
+|                   | Neither were useful                                                      |                                   | 0.18%                             |
+| ilo               | Yes                                                                      |                                   | 12.07%                            |
+|                   | No                                                                       |                                   | 84.51%                            |
+|                   | I don't know                                                             |                                   | 3.55%                             |
+| ilo_satisfied     | Very satisfied                                                           |                                   | 4.17%                             |
+|                   | Satisfied                                                                |                                   | 6.92%                             |
+|                   | Neither satisfied nor dissatisfied                                       |                                   | 0.62%                             |
+|                   | Dissatisfied                                                             |                                   | 0.27%                             |
+|                   | Very dissatisfied                                                        |                                   | 0.09%                             |
+| ilo_applied       | Fully applied                                                            |                                   | 2.48%                             |
+|                   | Mostly applied                                                           |                                   | 7.81%                             |
+|                   | Only sometimes applied                                                   |                                   | 1.60%                             |
+|                   | Never applied                                                            |                                   | 0.18%                             |
+| computer          | None, I have never used a computer                                       | 46.45%                            | 53.17%                            |
+|                   | Basic computer skills                                                    | 24.79%                            | 35.32%                            |
+|                   | Basic Word and Excel processing skills                                   | 11.35%                            | 8.96%                             |
+|                   | Knowledge of specialized software                                        | 12.02%                            | 1.86%                             |
+|                   | Knowledge of computer programming languages                              | 5.24%                             | 0.71%                             |
+| conditions        | Very Satisfied                                                           | 11.55%                            | 6.39%                             |
+|                   | Satisfied                                                                | 22.18%                            | 29.56%                            |
+|                   | Neither satisfied nor dissatisfied                                       | 26.13%                            | 21.83%                            |
+|                   | Dissatisfied                                                             | 24.76%                            | 31.59%                            |
+|                   | Very dissatisfied                                                        | 14.38%                            | 9.84%                             |
+| grievance         | Very Satisfied                                                           | 11.45%                            | 5.59%                             |
+|                   | Satisfied                                                                | 18.43%                            | 26.63%                            |
+|                   | Neither satisfied nor dissatisfied                                       | 22.88%                            | 22.32%                            |
+|                   | Dissatisfied                                                             | 32.52%                            | 28.99%                            |
+|                   | Very dissatisfied                                                        | 14.62%                            | 16.97%                            |
+| best_1            | I get a reliable salary                                                  |                                   | 6.13%                             |
+|                   | I can be independent                                                     |                                   | 18.99%                            |
+|                   | Friends at work                                                          |                                   | 29.02%                            |
+|                   | Learning new skills                                                      |                                   | 19.34%                            |
+|                   | I am able to advance my career                                           |                                   | 17.39%                            |
+|                   | The work itself is interesting                                           |                                   | 4.97%                             |
+|                   | The factory environment                                                  |                                   | 3.90%                             |
+|                   | Other                                                                    |                                   | 0.27%                             |
+| best_2            | I get a reliable salary                                                  |                                   | 4.17%                             |
+|                   | I can be independent                                                     |                                   | 11.18%                            |
+|                   | Friends at work                                                          |                                   | 20.68%                            |
+|                   | Learning new skills                                                      |                                   | 16.26%                            |
+|                   | I am able to advance my career                                           |                                   | 17.28%                            |
+|                   | The work itself is interesting                                           |                                   | 4.97%                             |
+|                   | The factory environment                                                  |                                   | 4.09%                             |
+|                   | Other                                                                    |                                   | 0.00%                             |
+|                   | None                                                                     |                                   | 21.43%                            |
+| worst_1           | Low pay                                                                  |                                   | 79.24%                            |
+|                   | Long working hours                                                       |                                   | 5.86%                             |
+|                   | Shouting by supervisors and managers                                     |                                   | 3.90%                             |
+|                   | Sexual harassment                                                        |                                   | 0.18%                             |
+|                   | Production targets are too high                                          |                                   | 1.60%                             |
+|                   | Strict rules                                                             |                                   | 2.13%                             |
+|                   | Overtime                                                                 |                                   | 0.80%                             |
+|                   | Factory is too hot                                                       |                                   | 1.86%                             |
+|                   | The food is bad                                                          |                                   | 1.42%                             |
+|                   | Lack of opportunities to advance my career                               |                                   | 1.42%                             |
+|                   | Other                                                                    |                                   | 1.60%                             |
+| worst_2           | Low pay                                                                  |                                   | 7.54%                             |
+|                   | Long working hours                                                       |                                   | 13.67%                            |
+|                   | Shouting by supervisors and managers                                     |                                   | 15.08%                            |
+|                   | Sexual harassment                                                        |                                   | 0.53%                             |
+|                   | Production targets are too high                                          |                                   | 4.52%                             |
+|                   | Strict rules                                                             |                                   | 9.84%                             |
+|                   | Overtime                                                                 |                                   | 2.31%                             |
+|                   | Factory is too hot                                                       |                                   | 7.63%                             |
+|                   | The food is bad                                                          |                                   | 11.28%                            |
+|                   | Lack of opportunities to advance my career                               |                                   | 5.65%                             |
+|                   | Other                                                                    |                                   | 0.27%                             |
+|                   | None                                                                     |                                   | 22.45%                            |
+| expectation       | Yes                                                                      |                                   | 97.74%                            |
+|                   | No                                                                       |                                   | 2.31%                             |
+| recognition       | Yes                                                                      |                                   | 21.06%                            |
+|                   | No                                                                       |                                   | 77.27%                            |
+|                   | I don't know                                                             |                                   | 1.68%                             |
+| purpose           | Yes                                                                      |                                   | 65.21%                            |
+|                   | No                                                                       |                                   | 31.60%                            |
+|                   | I don't know                                                             |                                   | 3.28%                             |
+| development       | Yes                                                                      |                                   | 45.00%                            |
+|                   | No                                                                       |                                   | 53.97%                            |
+|                   | I don't know                                                             |                                   | 1.07%                             |
+| friend            | Yes                                                                      |                                   | 89.04%                            |
+|                   | No                                                                       |                                   | 10.83%                            |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+| changejob         | Yes, I want another job                                                  | 55.41%                            | 75.85%                            |
+|                   | No, this job is acceptable at the moment                                 | 32.03%                            | 21.20%                            |
+|                   | I don’t want to answer                                                   |                                   | 2.93%                             |
+| exp_tenure        | Only for the next month or less                                          | 3.39%                             | 2.58%                             |
+|                   | For 1-3 months                                                           | 6.66%                             | 8.17%                             |
+|                   | For 3-6 months                                                           | 11.56%                            | 26.72%                            |
+|                   | For 6 months to one year                                                 | 17.33%                            | 53.19%                            |
+|                   | For a couple years                                                       | 8.42%                             | 13.49%                            |
+|                   | Until I retire or stop working                                           | 27.17%                            | 6.83%                             |
+|                   | I don't know                                                             |                                   | 30.01%                            |
+| plans             | Working in this firm                                                     | 11.55%                            | 6.83%                             |
+|                   | Working in another textile or garment factory                            | 6.99%                             | 7.71%                             |
+|                   | Working in a factory in a different sector                               | 10.38%                            | 10.75%                            |
+|                   | Running my own business                                                  | 42.24%                            | 50.27%                            |
+|                   | Working and living abroad                                                | 7.65%                             | 5.86%                             |
+|                   | Taking care of my family                                                 | 2.95%                             | 1.33%                             |
+|                   | Retired or unemployed                                                    | 0.87%                             | 0.71%                             |
+|                   | I don't know                                                             |                                   | 16.60%                            |
+| wellbeing         | Improved a lot                                                           |                                   | 7.90%                             |
+|                   | Improved a little                                                        |                                   | 38.05%                            |
+|                   | About the same                                                           |                                   | 39.22%                            |
+|                   | Got a bit worse                                                          |                                   | 10.47%                            |
+|                   | Got a lot worse                                                          |                                   | 4.35%                             |
+| contract_type     | Written agreement with fixed duration                                    | 18.69%                            | 17.68%                            |
+|                   | Written agreement that is renewable                                      | 37.79%                            | 70.83%                            |
+|                   | Verbal agreement with fixed duration                                     | 8.29%                             | 1.86%                             |
+|                   | Verbal agreement that is renewable                                       | 10.38%                            | 2.93%                             |
+|                   | No agreement at all                                                      | 14.42%                            | 3.37%                             |
+|                   | I don’t know                                                             |                                   | 3.37%                             |
+| contract_comp     | Yes                                                                      | 48.66%                            | 76.20%                            |
+|                   | No                                                                       | 6.01%                             | 11.90%                            |
+|                   | I don't know                                                             |                                   | 0.35%                             |
+| contract_copy     | Yes                                                                      | 35.84%                            | 68.08%                            |
+|                   | No                                                                       | 18.09%                            | 19.35%                            |
+|                   | I don't know                                                             | 2.51%                             | 1.07%                             |
+| union             | Yes                                                                      |                                   | 44.31%                            |
+|                   | No                                                                       |                                   | 43.02%                            |
+|                   | I don't know                                                             |                                   | 12.88%                            |
+| \$tu_member1      | Yes                                                                      | 35.74%                            | 24.32%                            |
+|                   | No, but I have been a union member in the past                           | 8.62%                             | 5.85%                             |
+|                   | No, I have never been a union member                                     | 42.70%                            | 13.94%                            |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+|                   | I don't want to say                                                      |                                   | 0.00%                             |
+| \$tu_member2      | \<25%                                                                    |                                   | 16.23%                            |
+|                   | 25%-50%                                                                  |                                   | 13.57%                            |
+|                   | 50%-75%                                                                  |                                   | 8.25%                             |
+|                   | \> 75 %                                                                  |                                   | 6.21%                             |
+| \$tu_attitude     | In favor of trade union membership                                       | 38.25%                            | 22.20%                            |
+|                   | Not in favor of trade union membership                                   | 15.48%                            | 22.82%                            |
+|                   | Neutral about it                                                         | 22.40%                            | 13.92%                            |
+|                   | I don’t know                                                             |                                   | 40.32%                            |
+|                   | I don't want to answer                                                   |                                   | 0.80%                             |
+| \$tu_hiring       | Yes                                                                      |                                   | 22.27%                            |
+|                   | No                                                                       |                                   | 67.45%                            |
+|                   | I don't know                                                             |                                   | 10.12%                            |
+|                   | I don't want to answer                                                   |                                   | 0.18%                             |
+| \$tu_busting      | Yes                                                                      |                                   | 9.94%                             |
+|                   | No                                                                       |                                   | 69.32%                            |
+|                   | I don't know                                                             |                                   | 20.57%                            |
+|                   | I don't want to answer                                                   |                                   | 0.18%                             |
+| \$tu_firing       | Yes                                                                      | 20.00%                            | 11.45%                            |
+|                   | No                                                                       | 27.97%                            | 60.51%                            |
+|                   | I don't know                                                             |                                   | 27.58%                            |
+|                   | I don't want to answer                                                   | 6.78%                             | 0.09%                             |
+| \$tu_threat       | Frequently                                                               | 7.43%                             | 1.06%                             |
+|                   | Sometimes                                                                | 16.50%                            | 7.10%                             |
+|                   | Rarely                                                                   | 16.07%                            | 4.53%                             |
+|                   | Never                                                                    | 18.03%                            | 26.02%                            |
+|                   | I don't know                                                             |                                   | 5.42%                             |
+|                   | I don't want to answer                                                   |                                   | 0.18%                             |
+| \$coll_barg       | Yes                                                                      | 43.81%                            | 28.14%                            |
+|                   | No                                                                       | 32.34%                            | 47.40%                            |
+|                   | I don't know                                                             |                                   | 24.13%                            |
+|                   | I don't want to answer                                                   |                                   | 0.35%                             |
+| \$cb_copy         | Yes                                                                      | 18.45%                            | 12.70%                            |
+|                   | No                                                                       | 14.21%                            | 14.48%                            |
+|                   | I don't know                                                             |                                   | 0.97%                             |
+|                   | I don't want to answer                                                   |                                   | 0.00%                             |
+| \$cb_refuse       | Yes                                                                      |                                   | 9.68%                             |
+|                   | No                                                                       |                                   | 21.48%                            |
+|                   | I don't know                                                             |                                   | 15.98%                            |
+|                   | I don't want to answer                                                   |                                   | 0.27%                             |
+| \$complaint       | Yes                                                                      | 45.36%                            | 57.64%                            |
+|                   | No                                                                       | 35.18%                            | 35.91%                            |
+|                   | I don't know                                                             |                                   | 6.48%                             |
+| \$complaint_use1  | Yes                                                                      | 25.48%                            | 29.46%                            |
+|                   | No                                                                       | 19.89%                            | 27.66%                            |
+|                   | I don't want to answer                                                   |                                   | 0.44%                             |
+| \$complaint_use2  | I have never had a serious grievance or complaint                        |                                   | 22.31%                            |
+|                   | The procedure seems to complicated or slow?                              |                                   | 2.31%                             |
+|                   | I was afraid I would be punished in some way if I complain               |                                   | 0.89%                             |
+|                   | I did not know about the grievance procedure at the time of my complaint |                                   | 0.62%                             |
+|                   | The grievance procedure did not exist at the time of my complaint        |                                   | 0.53%                             |
+|                   | I don't know                                                             |                                   | 0.97%                             |
+|                   | I don't want to answer                                                   |                                   | 0.09%                             |
+| \$complaint_outc  | Very Satisfied                                                           | 6.44%                             | 4.25%                             |
+|                   | Satisfied                                                                | 9.94%                             | 14.63%                            |
+|                   | Neither satisfied nor dissatisfied                                       | 3.39%                             | 20.00%                            |
+|                   | Dissatisfied                                                             | 3.71%                             | 9.42%                             |
+|                   | Very dissatisfied                                                        | 1.97%                             | 1.16%                             |
+|                   | I don't want to answer                                                   |                                   | 0.00%                             |
+| \$interests       | Always                                                                   | 13.42%                            | 8.25%                             |
+|                   | Sometimes                                                                | 31.26%                            | 35.61%                            |
+|                   | Rarely                                                                   | 28.63%                            | 28.64%                            |
+|                   | Never                                                                    | 26.68%                            | 25.56%                            |
+|                   | I don’t want to answer                                                   |                                   | 1.95%                             |
+| \$strike_5yrs     | Yes                                                                      | 27.32%                            | 38.58%                            |
+|                   | No                                                                       | 34.09%                            | 48.99%                            |
+|                   | I don't know                                                             |                                   | 12.24%                            |
+|                   | I don't want to answer                                                   |                                   | 0.18%                             |
+| \$strike_1yr      | Yes                                                                      |                                   | 25.20%                            |
+|                   | No                                                                       |                                   | 13.13%                            |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+|                   | I don't want to answer                                                   |                                   | 0.09%                             |
+| \$strike_self     | Yes                                                                      | 10.82%                            | 27.66%                            |
+|                   | No                                                                       | 11.80%                            | 10.55%                            |
+|                   | I don't know                                                             | 2.95%                             | 0.27%                             |
+|                   | I don't want to answer                                                   |                                   | 0.09%                             |
+| \$strike_quant    | less than one quarter                                                    |                                   | 3.02%                             |
+|                   | between half and one quarter                                             |                                   | 8.51%                             |
+|                   | between half and three quarters                                          |                                   | 18.97%                            |
+|                   | more than three quarters                                                 |                                   | 37.64%                            |
+| \$strike_reason   | Low pay                                                                  |                                   | 25.74%                            |
+|                   | Payment delay                                                            |                                   | 5.50%                             |
+|                   | Extended hours of work                                                   |                                   | 1.77%                             |
+|                   | Abusive employer                                                         |                                   | 0.09%                             |
+|                   | Politics outside the factory                                             |                                   | 0.09%                             |
+|                   | Other                                                                    |                                   | 4.27%                             |
+|                   | I don't know                                                             |                                   | 0.53%                             |
+|                   | I don't want to answer                                                   |                                   | 0.62%                             |
+| \$strike_outcome  | Settlement in favour of workers                                          | 8.20%                             | 7.99%                             |
+|                   | Settlement in favour of employers                                        | 5.79%                             | 14.90%                            |
+|                   | Balanced settlement                                                      | 3.83%                             | 15.55%                            |
+|                   | Stalemate                                                                | 6.78%                             | 10.17%                            |
+|                   | Other                                                                    | 0.66%                             | 0.00%                             |
+|                   | I don't know                                                             |                                   | 0.62%                             |
+| \$strike_violence | Yes                                                                      |                                   | 3.20%                             |
+|                   | No                                                                       |                                   | 34.67%                            |
+|                   | I don't know                                                             |                                   | 0.62%                             |
+|                   | I don't want to answer                                                   |                                   | 0.09%                             |
+| \$strike_prevent  | Yes                                                                      | 30.93%                            | 26.97%                            |
+|                   | No                                                                       | 27.19%                            | 60.16%                            |
+|                   | I don't know                                                             |                                   | 16.92%                            |
+|                   | I don't want to answer                                                   |                                   | 0.44%                             |
+| \$law1            | True                                                                     | 60.44%                            | 58.61%                            |
+|                   | False                                                                    | 18.03%                            | 25.73%                            |
+|                   | I don't know                                                             |                                   | 15.61%                            |
+| \$law2            | True                                                                     | 44.92%                            | 62.06%                            |
+|                   | False                                                                    | 33.01%                            | 23.19%                            |
+|                   | I don't know                                                             |                                   | 14.75%                            |
+| \$law3            | True                                                                     | 25.90%                            | 56.09%                            |
+|                   | False                                                                    | 56.39%                            | 25.45%                            |
+|                   | I don't know                                                             |                                   | 18.45%                            |
+| \$law4            | True                                                                     | 29.73%                            | 39.91%                            |
+|                   | False                                                                    | 46.51%                            | 35.80%                            |
+|                   | I don't know                                                             |                                   | 24.29%                            |
+| \$accidents_tot   | None                                                                     |                                   | 80.72%                            |
+|                   | Less than 5                                                              |                                   | 14.99%                            |
+|                   | between 5 and 10                                                         |                                   | 2.84%                             |
+|                   | between 10 and 20                                                        |                                   | 0.89%                             |
+|                   | More than 20                                                             |                                   | 0.27%                             |
+|                   | More than 50                                                             |                                   | 0.18%                             |
+| \$accident_self   | Yes                                                                      | 25.77%                            | 4.52%                             |
+|                   | No                                                                       | 74.23%                            | 76.12%                            |
+|                   | I don't want to answer                                                   |                                   | 0.09%                             |
+| \$chemicals       | Yes                                                                      | 29.94%                            | 17.21%                            |
+|                   | No                                                                       | 58.75%                            | 81.47%                            |
+|                   | I don't know                                                             |                                   | 1.33%                             |
+| \$washing         | Yes                                                                      | 38.25%                            | 8.43%                             |
+|                   | No                                                                       | 42.18%                            | 8.62%                             |
+|                   | I don't know                                                             |                                   | 0.18%                             |
+| \$toilets         | Yes                                                                      | 75.08%                            | 82.45%                            |
+|                   | No                                                                       | 20.77%                            | 17.14%                            |
+|                   | I don't know                                                             |                                   | 0.44%                             |
+| \$toilet_quality  | Very satisfied                                                           | 21.96%                            | 13.49%                            |
+|                   | Satisfied                                                                | 22.08%                            | 53.76%                            |
+|                   | Neither satisfied nor dissatisfied                                       | 15.19%                            | 14.83%                            |
+|                   | Dissatisfied                                                             | 10.60%                            | 14.30%                            |
+|                   | Very dissatisfied                                                        | 5.25%                             | 3.64%                             |
+| \$hs_onsite       | Yes                                                                      | 55.33%                            | 60.77                             |
+|                   | No                                                                       | 35.08%                            | 38.70%                            |
+|                   | I don't know                                                             |                                   | 0.53%                             |
+| \$hs_quality      | Very satisfied                                                           | 9.40%                             | 2.75%                             |
+|                   | Satisfied                                                                | 13.01%                            | 32.52%                            |
+|                   | Neither satisfied nor dissatisfied                                       | 12.90%                            | 10.64%                            |
+|                   | Dissatisfied                                                             | 13.42%                            | 9.59%                             |
+|                   | Very dissatisfied                                                        | 6.66%                             | 3.82%                             |
+|                   | I never used the service                                                 |                                   | 1.51%                             |
+| \$ownhealth       | Very good                                                                | 36.07%                            | 29.85%                            |
+|                   | Good                                                                     | 32.24%                            | 41.72%                            |
+|                   | Average                                                                  | 19.45%                            | 16.50%                            |
+|                   | Fair                                                                     | 4.59%                             | 5.42%                             |
+|                   | Poor                                                                     | 7.65%                             | 6.57%                             |
+| \$temperature     | Yes                                                                      | 53.77%                            | 50.07%                            |
+|                   | No                                                                       | 40.77%                            | 49.42%                            |
+|                   | I don't know                                                             |                                   | 0.53%                             |
+| \$noise           | Yes                                                                      | 37.16%                            | 44.68%                            |
+|                   | No                                                                       | 48.20%                            | 54.47%                            |
+|                   | I don't know                                                             |                                   | 0.97%                             |
+| \$water           | Yes                                                                      | 58.14%                            | 77.59%                            |
+|                   | No                                                                       | 36.47%                            | 22.20%                            |
+|                   | I don't know                                                             |                                   | 0.27%                             |
+| \$ppcce           | Yes                                                                      | 34.97%                            | 43.23%                            |
+|                   | No                                                                       | 51.37%                            | 56.00%                            |
+|                   | I don't know                                                             |                                   | 0.80%                             |
+| \$ppcce_train     | Yes                                                                      | 22.18%                            | 35.57%                            |
+|                   | No                                                                       | 9.72%                             | 63.22%                            |
+|                   | I don't know                                                             |                                   | 1.24%                             |
+| \$drills          | Yes                                                                      | 43.81%                            | 71.35%                            |
+|                   | No                                                                       | 41.53%                            | 27.87%                            |
+|                   | I don't know                                                             |                                   | 0.80%                             |
+| \$safetravel1     | Yes                                                                      | 40.33%                            | 30.01%                            |
+|                   | No                                                                       | 50.27%                            | 69.59%                            |
+|                   | I don't know                                                             |                                   | 0.44%                             |
+| \$safetravel2     | Robbery                                                                  |                                   | 21.83%                            |
+|                   | Sexual assault                                                           |                                   | 1.42%                             |
+|                   | Traffic accident                                                         |                                   | 6.30%                             |
+|                   | Other                                                                    |                                   | 0.44%                             |
+| \$abuse_verbal1   | Yes                                                                      | 42.62%                            | 37.71%                            |
+|                   | No                                                                       | 34.63%                            | 60.24%                            |
+|                   | I don't know                                                             |                                   | 1.78%                             |
+|                   | I don't want to answer                                                   | 6.78%                             | 0.27%                             |
+| \$abuse_managers  | Yes, often                                                               | 14.53%                            | 4.44%                             |
+|                   | Yes, sometimes                                                           | 27.19%                            | 17.57%                            |
+|                   | Only rarely                                                              | 18.90%                            | 10.56%                            |
+|                   | No, never                                                                | 24.26%                            | 65.60%                            |
+|                   | I don't know                                                             |                                   | 1.51%                             |
+|                   | I don't want to answer                                                   | 3.83%                             | 0.35%                             |
+| \$harass_managers | Yes, often                                                               | 8.63%                             | 1.69%                             |
+|                   | Yes, sometimes                                                           | 15.85%                            | 7.90%                             |
+|                   | Only rarely                                                              | 13.01%                            | 4.53%                             |
+|                   | No, never                                                                | 36.36%                            | 80.99%                            |
+|                   | I don't know                                                             |                                   | 4.62%                             |
+|                   | I don't want to answer                                                   | 4.48%                             | 0.35%                             |
+| \$harass_coll     | Yes, often                                                               |                                   | 1.69%                             |
+|                   | Yes, sometimes                                                           |                                   | 6.56%                             |
+|                   | Only rarely                                                              |                                   | 4.08%                             |
+|                   | No, never                                                                |                                   | 82.29%                            |
+|                   | I don't know                                                             |                                   | 4.62%                             |
+|                   | I don't want to answer                                                   |                                   | 0.62%                             |
+| \$harass_concern1 | Yes                                                                      | 16.39%                            | 7.00%                             |
+|                   | No                                                                       | 50.82%                            | 85.33%                            |
+|                   | I don't know                                                             |                                   | 6.83%                             |
+|                   | I don't want to answer                                                   | 6.99%                             | 0.80%                             |
+| \$relationship1   | Often                                                                    |                                   | 1.06%                             |
+|                   | Sometimes                                                                |                                   | 3.46%                             |
+|                   | Only one                                                                 |                                   | 1.06%                             |
+|                   | Never                                                                    |                                   | 92.96%                            |
+|                   | I don't want to answer                                                   |                                   | 1.51%                             |
+| \$unfair1_1       | 0                                                                        |                                   | 95.71%                            |
+|                   | 1                                                                        |                                   | 4.34%                             |
+| \$unfair1_2       | 0                                                                        |                                   | 92.36%                            |
+|                   | 1                                                                        |                                   | 7.72%                             |
+| \$unfair1_3       | 0                                                                        |                                   | 93.04%                            |
+|                   | 1                                                                        |                                   | 6.91%                             |
+| \$unfair1_4       | 0                                                                        |                                   | 91.61%                            |
+|                   | 1                                                                        |                                   | 8.52%                             |
+| \$unfair1_5       | 0                                                                        |                                   | 21.05%                            |
+|                   | 1                                                                        |                                   | 79.05%                            |
+
+**3.3 Comparative descriptives**
+
+Tables that compare the difference between treatment and control for both baseline and endline, i.e. with the following columns Treatment baseline, Control baseline, Diff Treatment-Control, ttest for difference, Treatment endline, Control endline, Diff Treatment-Control, ttest for difference.
+
+::: callout-warning
+## Discrete variables
+
+I cannot calculate a mean or conduct a t-testing with discrete variables. I left those rows blank for now. I was thinking about creating proportions for all outcomes and then deduct differences out of those for control and treatment, but wanted to ask first.
+:::
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+comp_vars_23 <- c("remittance_lvl", "children", "care1", "care3", "care4", "read", "english", "amharic", "edu_years", "salary_base3", "salary_th3", "stablewage1", 
+"stablewage2", "workinghours", "workingdays", "bonus", "deductions", 
+"savings", "savings_lvl", "hhincome2", "transport", "transport_sub", 
+"housing", "housing_sub", "meals", "ot_hours", "ot_choice","ot_pay1", "nursing", "leave", "absence", "training_for", "training_job", "computer", "conditions", "grievance", "changejob", "exp_tenure", "wellbeing", "contract_type", "union", "tu_member1", "coll_barg", "complaint", "complaint_use1", "strike_5yrs", "strike_1yr", "strike_self", "accidents_tot", "health_cover", "concern", "osh_com1", "chemicals", "washing", "toilets", "toilet_quality", "hs_onsite","ownhealth", "temperature", "noise", "water", "ppcce", "ppcce_train", "drills", "abuse_verbal1", "abuse_managers", "harass_managers", "harass_coll", "harass_concern1", "relationship1", "in_baseline", "selected")
+endline <- df_23[comp_vars_23]
+
+
+comp_vars_19 <- c("b9_4", "b10", "b11", "b12", "b12_1", "b13", "e10_1_clean", "e10_2_clean", "e10_3_clean", "e10_4", "e13", "e14_2","e15", "e18", "e16", "e19", "e20", "e22", "ot9", "ot11","ot7", "ot27", "ot30", "ot31", "b20", "b18", "b23", "e24", "e25", "e26", "e29",
+"e30", "cb1", "cb10", "cb14", "cb15", "cb29", "cb30_1", "osh1", "osh2", "osh3_1", "osh6", "osh9", "osh10", "osh10_1", "osh13","osh13_3", "osh15", "osh16", "osh19", "osh21", "osh22", "osh25", "d0", "d7_1", "d7_2", "d7_3", "included_in_endline", "selected")
+baseline <- merged_worker_19[comp_vars_19]
+
+endline <- endline %>%
+  mutate(selected = case_when(
+    selected %in% c("Control - main", "Control - Reserve") ~ "Control",
+    TRUE ~ as.character(selected)
+  ))
+
+baseline <- baseline %>%
+  mutate(selected = case_when(
+    selected %in% c("Control - main", "Control - Reserve") ~ "Control",
+    TRUE ~ as.character(selected)
+  ))
+
+end_treatment <- subset(endline, selected == "Treatment")
+end_control <- subset(endline, selected == "Control")
+
+base_treatment <- subset(baseline, selected == "Treatment")
+base_control <- subset(baseline, selected == "Control")
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE}
+summary_ttest <- data.frame(
+  Variable = c("remittance_lvl", "children", "salary_base3","salary_th3","workinghours", "workingdays"),
+    `Treatment baseline` = NA,
+    `Control baseline` = NA,
+    `Diff Treatment-Control baseline` = NA,
+    `ttest for difference baseline` = NA,
+    `Treatment endline` = NA,
+    `Control endline` = NA,
+    `Diff Treatment-Control endline` = NA,
+    `ttest for difference endline` = NA )
+
+
+#Remittance Level
+t_test_remittance_b <- t.test(base_treatment$b9_4, base_control$b9_4)
+summary_ttest[1, 2] <- t_test_remittance_b$estimate[1]
+summary_ttest[1, 3] <- t_test_remittance_b$estimate[2]
+summary_ttest[1, 4] <- t_test_remittance_b$estimate[1] - t_test_remittance_b$estimate[2]
+summary_ttest[1, 5] <- t_test_remittance_b$p.value
+
+t_test_remittance_e <- t.test(end_treatment$remittance_lvl, end_control$remittance_lvl)
+summary_ttest[1, 6] <- t_test_remittance_e$estimate[1]
+summary_ttest[1, 7] <- t_test_remittance_e$estimate[2]
+summary_ttest[1, 8] <- t_test_remittance_e$estimate[1] - t_test_remittance_e$estimate[2]
+summary_ttest[1, 9] <- t_test_remittance_e$p.value
+
+#children
+t_test_children_b <- t.test(base_treatment$b10, base_control$b10)
+summary_ttest[2, 2] <- t_test_children_b$estimate[1]
+summary_ttest[2, 3] <- t_test_children_b$estimate[2]
+summary_ttest[2, 4] <- t_test_children_b$estimate[1] - t_test_children_b$estimate[2]
+summary_ttest[2, 5] <- t_test_children_b$p.value
+
+t_test_children_e <- t.test(end_treatment$children, end_control$children)
+summary_ttest[2, 6] <- t_test_children_e$estimate[1]
+summary_ttest[2, 7] <- t_test_children_e$estimate[2]
+summary_ttest[2, 8] <- t_test_children_e$estimate[1] - t_test_children_e$estimate[2]
+summary_ttest[2, 9] <- t_test_children_e$p.value
+
+#salary base 3
+t_test_base_salary_b <- t.test(base_treatment$e10_1_clean, base_control$e10_1_clean)
+summary_ttest[3, 2] <- t_test_base_salary_b$estimate[1]
+summary_ttest[3, 3] <- t_test_base_salary_b$estimate[2]
+summary_ttest[3, 4] <- t_test_base_salary_b$estimate[1] - t_test_base_salary_b$estimate[2]
+summary_ttest[3, 5] <- t_test_base_salary_b$p.value
+
+t_test_base_salary_e <- t.test(end_treatment$salary_base3, end_control$salary_base3)
+summary_ttest[3, 6] <- t_test_base_salary_e$estimate[1]
+summary_ttest[3, 7] <- t_test_base_salary_e$estimate[2]
+summary_ttest[3, 8] <- t_test_base_salary_e$estimate[1] - t_test_base_salary_e$estimate[2]
+summary_ttest[3, 9] <- t_test_base_salary_e$p.value
+
+#salary th 3
+t_test_th_salary_b <- t.test(base_treatment$e10_2_clean, base_control$e10_2_clean)
+summary_ttest[4, 2] <- t_test_th_salary_b$estimate[1]
+summary_ttest[4, 3] <- t_test_th_salary_b$estimate[2]
+summary_ttest[4, 4] <- t_test_th_salary_b$estimate[1] - t_test_th_salary_b$estimate[2]
+summary_ttest[4, 5] <- t_test_th_salary_b$p.value
+
+t_test_th_salary_e <- t.test(end_treatment$salary_th3, end_control$salary_th3)
+summary_ttest[4, 6] <- t_test_th_salary_e$estimate[1]
+summary_ttest[4, 7] <- t_test_th_salary_e$estimate[2]
+summary_ttest[4, 8] <- t_test_th_salary_e$estimate[1] - t_test_th_salary_e$estimate[2]
+summary_ttest[4, 9] <- t_test_th_salary_e$p.value
+
+#working hours
+t_test_wo_b <- t.test(base_treatment$e10_3_clean, base_control$e10_3_clean)
+summary_ttest[5, 2] <- t_test_wo_b$estimate[1]
+summary_ttest[5, 3] <- t_test_wo_b$estimate[2]
+summary_ttest[5, 4] <- t_test_wo_b$estimate[1] - t_test_wo_b$estimate[2]
+summary_ttest[5, 5] <- t_test_wo_b$p.value
+
+end_treatment$workinghours <- as.numeric (end_treatment$workinghours)
+end_control$workinghours <- as.numeric(end_control$workinghours)
+
+t_test_wo_e <- t.test(end_treatment$workinghours, end_control$workinghours)
+summary_ttest[5, 6] <- t_test_wo_e$estimate[1]
+summary_ttest[5, 7] <- t_test_wo_e$estimate[2]
+summary_ttest[5, 8] <- t_test_wo_e$estimate[1] - t_test_wo_e$estimate[2]
+summary_ttest[5, 9] <- t_test_wo_e$p.value
+
+#working days
+t_test_wd_b <- t.test(base_treatment$e10_4, base_control$e10_4)
+summary_ttest[6, 2] <- t_test_wd_b$estimate[1]
+summary_ttest[6, 3] <- t_test_wd_b$estimate[2]
+summary_ttest[6, 4] <- t_test_wd_b$estimate[1] - t_test_wd_b$estimate[2]
+summary_ttest[6, 5] <- t_test_wd_b$p.value
+
+end_treatment$workingdays <- as.numeric (end_treatment$workingdays)
+end_control$workingdays <- as.numeric(end_control$workingdays)
+
+t_test_wd_e <- t.test(end_treatment$workingdays, end_control$workingdays)
+summary_ttest[6, 6] <- t_test_wd_e$estimate[1]
+summary_ttest[6, 7] <- t_test_wd_e$estimate[2]
+summary_ttest[6, 8] <- t_test_wd_e$estimate[1] - t_test_wd_e$estimate[2]
+summary_ttest[6, 9] <- t_test_wd_e$p.value
+
+summary_ttest[, 2:8] <- lapply(summary_ttest[, 2:8], round_reasonable)
+```
+
+| Variable       | Treatment Baseline | Control Baseline | Diff. in mean | ttest (p-value) |
+|----------------|--------------------|------------------|---------------|-----------------|
+| remittance_lvl | 2438               | 2060             | 378           | 0.47            |
+| children       | 0.59               | 0.56             | 0.03          | 0.85            |
+| salary_base3   | 1891               | 2034             | 142           | 0.42            |
+| salary_th3     | 2122               | 2200             | 78            | 0.71            |
+| workinghours   | 8.95               | 9.08             | 0.12          | 0.51            |
+| workingdays    | 5.71               | 5.96             | 0.25          | 0.00\*\*\*      |
+
+| Variable       | Treatment Endline | Control Endline | Diff. in mean | ttest (p-value) |
+|----------------|-------------------|-----------------|---------------|-----------------|
+| remittance_lvl | 4716              | 6038            | 1322          | 0.16\*\*\*      |
+| children       | 1.33              | 1.62            | 0.29          | 0.00\*\*\*      |
+| salary_base3   | 2787              | 3342            | 555           | 0.00\*\*\*      |
+| salary_th3     | 2705              | 2984            | 288           | 0.04\*\*\*      |
+| workinghours   | 5.5               | 5.96            | 0.46          | 0.00\*\*\*      |
+| workingdays    | 5.79              | 5.88            | 0.09          | 0.01\*\*\*      |
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Base Salary in endline and baseline survey according group differences"}
+baseline <- baseline %>%
+  mutate(time = "baseline")
+endline <- endline %>%
+  mutate(time = "endline")
+
+# Sample data for df_endline
+df_plot <- data.frame(
+  salary_base3 = endline$salary_base3,
+  salary_th3 = endline$salary_th3,
+  tu_member1 = endline$tu_member1,
+  time = endline$time,
+  selected = endline$selected
+)
+df_plot_2 <- data.frame(
+  salary_base3 = baseline$e10_1_clean,
+  salary_th3 = baseline$e10_2_clean,
+  tu_member1 = baseline$cb1,
+  time = baseline$time,
+  selected = baseline$selected
+)
+combined_data <- bind_rows(df_plot, df_plot_2)
+
+#plot for salary base 3
+# Calculate mean and standard deviation for each group and time point
+summary_data <- combined_data %>%
+  group_by(selected, time) %>%
+  summarize(mean_salary = mean(salary_base3, na.rm = TRUE),
+            sd_salary = sd(salary_base3, na.rm = TRUE))
+
+# Set default standard deviation for missing values
+summary_data$sd_salary[is.na(summary_data$sd_salary)] <- 0.1
+
+# Plot the bar chart with error bars
+plot_salary_base3 <- ggplot(summary_data, aes(x = selected, y = mean_salary, fill = time)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.7, width = 0.8) +
+  geom_errorbar(aes(ymin = mean_salary - sd_salary, ymax = mean_salary + sd_salary),
+                position = position_dodge(width = 0.8),
+                width = 0.25) +
+  scale_fill_manual(values = c("baseline" = "blue", "endline" = "orange")) +
+  labs(title = "Base Salary Comparison bewtween baseline and endline",
+       subtitle = "Treatment groups compared across time points",
+       x = " ",
+       y = "Base Salary in ETB") +
+  facet_wrap(~time) +
+  theme_minimal() +
+  theme(legend.position = "top")
+print(plot_salary_base3)
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Take Home Salary in endline and baseline survey according group differences"}
+# Plot for salary_th3
+summary_data_th <- combined_data %>%
+  group_by(selected, time) %>%
+  summarize(mean_th = mean(salary_th3, na.rm = TRUE),
+            sd_th = sd(salary_th3, na.rm = TRUE))
+summary_data_th$sd_th[is.na(summary_data_th$sd_th)] <- 0.1
+
+# Plot the bar chart with error bars
+plot_salary_th3 <- ggplot(summary_data_th, aes(x = selected, y = mean_th, fill = time)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.7, width = 0.8) +
+  geom_errorbar(aes(ymin = mean_th - sd_th, ymax = mean_th + sd_th),
+                position = position_dodge(width = 0.8),
+                width = 0.25) +
+  scale_fill_manual(values = c("baseline" = "blue", "endline" = "orange")) +
+  labs(title = "Take-home Salary comparison between baseline and endline",
+       subtitle = "treatment groups compared across time points",
+       x = " ",
+       y = "Take home Salary in ETB") +
+  facet_wrap(~time) +
+  theme_minimal() +
+  theme(legend.position = "top")
+print(plot_salary_th3)
+```
+
+```{r echo = FALSE, message = FALSE, warning=FALSE, fig.cap= "Barplot for Trade Union Membership in endline and baseline survey according group differences", fig.width=8, fig.height=6}
+# Plot for tu_member1
+summary_data_tu <- combined_data %>%
+  group_by(selected, time, tu_member1) %>%
+  summarise(count = n())  # Assuming tu_member1 represents counts or frequencies
+
+tu_member1_colors <- c("Yes" = "green", "No, I have never been a union member" = "red", "No, but I have been a union member in the past" = "darkred", "I dont want to say " = "orange", "I don't know" = "purple")
+
+# Plot the grouped bar chart
+plot_tu <- ggplot(summary_data_tu, aes(x = selected, y = count, fill = tu_member1)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.7, width = 0.8) +
+  scale_fill_manual(values = tu_member1_colors, name = "Trade Union Membership") +
+  labs(title = "Trade Union Membership comparison between baseline and endline",
+       subtitle = "Groups compared across time points",
+       x = " ",
+       y = "Number of workers") +
+  facet_wrap(~time)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+print(plot_tu)
+
+```
